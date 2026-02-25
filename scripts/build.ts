@@ -12,12 +12,16 @@ console.log("Building stacked...");
 const binDir = join(rootDir, "bin");
 mkdirSync(binDir, { recursive: true });
 
+const platform =
+  process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "windows" : "linux";
+const arch = process.arch === "arm64" ? "arm64" : "x64";
+
 const buildResult = await Bun.build({
   entrypoints: [join(rootDir, "src/main.ts")],
   target: "bun",
   minify: false,
   compile: {
-    target: "bun-darwin-arm64",
+    target: `bun-${platform}-${arch}`,
     outfile: join(binDir, "stacked"),
     autoloadBunfig: false,
   },
