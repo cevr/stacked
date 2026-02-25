@@ -1,3 +1,4 @@
+// @effect-diagnostics effect/strictEffectProvide:off
 import { describe, it, expect } from "effect-bun-test";
 import { Effect } from "effect";
 import { StackService } from "../../src/services/Stack.js";

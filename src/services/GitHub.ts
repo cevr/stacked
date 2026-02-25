@@ -1,5 +1,12 @@
-import { Effect, Layer, ServiceMap } from "effect";
+import { Effect, Layer, Schema, ServiceMap } from "effect";
 import { GitHubError } from "../errors/index.js";
+
+const GhPrResponse = Schema.Struct({
+  number: Schema.Number,
+  url: Schema.String,
+  state: Schema.String,
+  baseRefName: Schema.String,
+});
 
 export class GitHubService extends ServiceMap.Service<
   GitHubService,
@@ -25,7 +32,7 @@ export class GitHubService extends ServiceMap.Service<
     >;
     readonly isGhInstalled: () => Effect.Effect<boolean>;
   }
->()("services/GitHub/GitHubService") {
+>()("@cvr/stacked/services/GitHub/GitHubService") {
   static layer: Layer.Layer<GitHubService> = Layer.sync(GitHubService, () => {
     const run = Effect.fn("gh.run")(function* (args: readonly string[]) {
       const proc = Bun.spawn(["gh", ...args], {
@@ -84,22 +91,16 @@ export class GitHubService extends ServiceMap.Service<
         ]).pipe(Effect.catch(() => Effect.succeed(null)));
 
         if (result === null) return null;
-        try {
-          const data = JSON.parse(result) as {
-            number: number;
-            url: string;
-            state: string;
-            baseRefName: string;
-          };
-          return {
-            number: data.number,
-            url: data.url,
-            state: data.state,
-            base: data.baseRefName,
-          };
-        } catch {
-          return null;
-        }
+        const data = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(GhPrResponse))(
+          result,
+        ).pipe(Effect.catch(() => Effect.succeed(null)));
+        if (data === null) return null;
+        return {
+          number: data.number,
+          url: data.url,
+          state: data.state,
+          base: data.baseRefName,
+        };
       }),
 
       isGhInstalled: () =>

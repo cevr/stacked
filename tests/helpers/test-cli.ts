@@ -22,7 +22,7 @@ export class CallRecorder extends ServiceMap.Service<
     readonly calls: Effect.Effect<ReadonlyArray<ServiceCall>>;
     readonly clear: Effect.Effect<void>;
   }
->()("tests/helpers/CallRecorder") {
+>()("@cvr/stacked/tests/helpers/test-cli/CallRecorder") {
   static layer = Layer.effect(
     CallRecorder,
     Effect.gen(function* () {
@@ -54,59 +54,35 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
 
       return {
         currentBranch: () =>
-          Effect.gen(function* () {
-            yield* recorder.record({ service: "Git", method: "currentBranch" });
-            return options.currentBranch ?? "main";
-          }),
+          recorder
+            .record({ service: "Git", method: "currentBranch" })
+            .pipe(Effect.as(options.currentBranch ?? "main")),
         branchExists: (name: string) =>
-          Effect.gen(function* () {
-            yield* recorder.record({ service: "Git", method: "branchExists", args: { name } });
-            return options.branches?.[name] ?? false;
-          }),
+          recorder
+            .record({ service: "Git", method: "branchExists", args: { name } })
+            .pipe(Effect.as(options.branches?.[name] ?? false)),
         createBranch: (name: string, from?: string) =>
-          Effect.gen(function* () {
-            yield* recorder.record({
-              service: "Git",
-              method: "createBranch",
-              args: { name, from },
-            });
-          }),
+          recorder.record({ service: "Git", method: "createBranch", args: { name, from } }),
         deleteBranch: (name: string, force?: boolean) =>
-          Effect.gen(function* () {
-            yield* recorder.record({
-              service: "Git",
-              method: "deleteBranch",
-              args: { name, force },
-            });
-          }),
+          recorder.record({ service: "Git", method: "deleteBranch", args: { name, force } }),
         checkout: (name: string) =>
-          Effect.gen(function* () {
-            yield* recorder.record({ service: "Git", method: "checkout", args: { name } });
-          }),
+          recorder.record({ service: "Git", method: "checkout", args: { name } }),
         rebase: (onto: string) =>
-          Effect.gen(function* () {
-            yield* recorder.record({ service: "Git", method: "rebase", args: { onto } });
-          }),
+          recorder.record({ service: "Git", method: "rebase", args: { onto } }),
         push: (branch: string, opts?: { force?: boolean }) =>
-          Effect.gen(function* () {
-            yield* recorder.record({ service: "Git", method: "push", args: { branch, ...opts } });
-          }),
+          recorder.record({ service: "Git", method: "push", args: { branch, ...opts } }),
         log: (_branch: string, _opts?: { limit?: number; oneline?: boolean }) =>
           Effect.succeed("abc123 some commit"),
         mergeBase: (_a: string, _b: string) => Effect.succeed("abc123"),
         isClean: () => Effect.succeed(options.isClean ?? true),
         revParse: (ref: string) =>
-          Effect.gen(function* () {
-            yield* recorder.record({ service: "Git", method: "revParse", args: { ref } });
-            return ".git";
-          }),
+          recorder
+            .record({ service: "Git", method: "revParse", args: { ref } })
+            .pipe(Effect.as(".git")),
         diff: () => Effect.succeed(""),
         isAncestor: () => Effect.succeed(true),
         remote: () => Effect.succeed("origin"),
-        fetch: () =>
-          Effect.gen(function* () {
-            yield* recorder.record({ service: "Git", method: "fetch" });
-          }),
+        fetch: () => recorder.record({ service: "Git", method: "fetch" }),
       };
     }),
   );
@@ -127,19 +103,15 @@ export const createMockGitHubService = () =>
           body?: string;
           draft?: boolean;
         }) =>
-          Effect.gen(function* () {
-            yield* recorder.record({ service: "GitHub", method: "createPR", args: opts });
-            return { url: `https://github.com/test/repo/pull/1`, number: 1 };
-          }),
+          recorder
+            .record({ service: "GitHub", method: "createPR", args: opts })
+            .pipe(Effect.as({ url: `https://github.com/test/repo/pull/1`, number: 1 })),
         updatePR: (opts: { branch: string; base?: string; title?: string; body?: string }) =>
-          Effect.gen(function* () {
-            yield* recorder.record({ service: "GitHub", method: "updatePR", args: opts });
-          }),
+          recorder.record({ service: "GitHub", method: "updatePR", args: opts }),
         getPR: (branch: string) =>
-          Effect.gen(function* () {
-            yield* recorder.record({ service: "GitHub", method: "getPR", args: { branch } });
-            return null;
-          }),
+          recorder
+            .record({ service: "GitHub", method: "getPR", args: { branch } })
+            .pipe(Effect.as(null)),
         isGhInstalled: () => Effect.succeed(true),
       };
     }),

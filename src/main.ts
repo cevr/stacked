@@ -18,4 +18,5 @@ const ServiceLayer = StackService.layer.pipe(
 
 const AppLayer = Layer.mergeAll(ServiceLayer, BunServices.layer);
 
+// @effect-diagnostics-next-line effect/strictEffectProvide:off
 BunRuntime.runMain(cli.pipe(Effect.provide(AppLayer)));

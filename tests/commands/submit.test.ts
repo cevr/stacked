@@ -1,3 +1,4 @@
+// @effect-diagnostics effect/strictEffectProvide:off
 import { describe, it } from "effect-bun-test";
 import { Effect } from "effect";
 import { GitService } from "../../src/services/Git.js";

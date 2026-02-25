@@ -17,7 +17,7 @@
     "fmt:check": "oxfmt --check",
     "test": "bun test",
     "gate": "concurrently -n type,lint,fmt,test,build -c blue,yellow,magenta,green,cyan \"bun run typecheck\" \"bun run lint\" \"bun run fmt\" \"bun run test\" \"bun run build\"",
-    "prepare": "lefthook install"
+    "prepare": "effect-language-service patch && lefthook install"
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.0-beta.12",

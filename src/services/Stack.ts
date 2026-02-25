@@ -1,17 +1,20 @@
-import { Effect, Layer, Ref, ServiceMap } from "effect";
+import { Effect, Layer, Ref, Schema, ServiceMap } from "effect";
 import type { GitError } from "../errors/index.js";
 import { StackError } from "../errors/index.js";
 import { GitService } from "./Git.js";
 
-export interface StackFile {
-  readonly version: 1;
-  readonly trunk: string;
-  readonly stacks: Record<string, Stack>;
-}
+export const StackSchema = Schema.Struct({
+  branches: Schema.Array(Schema.String),
+});
 
-export interface Stack {
-  readonly branches: string[];
-}
+export const StackFileSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  trunk: Schema.String,
+  stacks: Schema.Record(Schema.String, StackSchema),
+});
+
+export type Stack = typeof StackSchema.Type;
+export type StackFile = typeof StackFileSchema.Type;
 
 const emptyStackFile: StackFile = { version: 1, trunk: "main", stacks: {} };
 
@@ -36,7 +39,7 @@ export class StackService extends ServiceMap.Service<
     readonly parentOf: (branch: string) => Effect.Effect<string, StackError>;
     readonly childrenOf: (branch: string) => Effect.Effect<string[], StackError>;
   }
->()("services/Stack/StackService") {
+>()("@cvr/stacked/services/Stack/StackService") {
   static layer: Layer.Layer<StackService, never, GitService> = Layer.effect(
     StackService,
     Effect.gen(function* () {
@@ -53,22 +56,27 @@ export class StackService extends ServiceMap.Service<
         return `${gitDir}/stacked.json`;
       });
 
+      const StackFileJson = Schema.fromJsonString(StackFileSchema);
+      const decodeStackFile = Schema.decodeUnknownEffect(StackFileJson);
+      const encodeStackFile = Schema.encodeEffect(StackFileJson);
+
       const load = Effect.fn("StackService.load")(function* () {
         const path = yield* stackFilePath();
-        try {
-          const file = Bun.file(path);
-          const exists = yield* Effect.promise(() => file.exists());
-          if (!exists) return emptyStackFile;
-          const text = yield* Effect.promise(() => file.text());
-          return JSON.parse(text) as StackFile;
-        } catch {
-          return emptyStackFile;
-        }
+        const file = Bun.file(path);
+        const exists = yield* Effect.promise(() => file.exists());
+        if (!exists) return emptyStackFile;
+        const text = yield* Effect.promise(() => file.text());
+        return yield* decodeStackFile(text).pipe(
+          Effect.catch(() => Effect.succeed(emptyStackFile)),
+        );
       });
 
       const save = Effect.fn("StackService.save")(function* (data: StackFile) {
         const path = yield* stackFilePath();
-        yield* Effect.promise(() => Bun.write(path, JSON.stringify(data, null, 2) + "\n")).pipe(
+        const text = yield* encodeStackFile(data).pipe(
+          Effect.mapError(() => new StackError({ message: `Failed to encode stack data` })),
+        );
+        yield* Effect.promise(() => Bun.write(path, text + "\n")).pipe(
           Effect.mapError(() => new StackError({ message: `Failed to write ${path}` })),
         );
       });

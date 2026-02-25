@@ -27,7 +27,7 @@ export class GitService extends ServiceMap.Service<
     readonly remote: () => Effect.Effect<string, GitError>;
     readonly fetch: (remote?: string) => Effect.Effect<void, GitError>;
   }
->()("services/Git/GitService") {
+>()("@cvr/stacked/services/Git/GitService") {
   static layer: Layer.Layer<GitService> = Layer.sync(GitService, () => {
     const run = Effect.fn("git.run")(function* (args: readonly string[]) {
       const proc = Bun.spawn(["git", ...args], {
