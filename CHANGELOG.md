@@ -1,5 +1,11 @@
 # @cvr/stacked
 
+## 0.3.0
+
+### Minor Changes
+
+- [`ed2a1dc`](https://github.com/cevr/stacked/commit/ed2a1dcfcad679890729762157e99932f056ddb6) Thanks [@cevr](https://github.com/cevr)! - Add `detect` command to auto-discover linear branch chains from git history and register them as stacks. Forked branches are reported but skipped.
+
 ## 0.2.0
 
 ### Minor Changes
