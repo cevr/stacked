@@ -53,6 +53,10 @@ stacked adopt existing-branch --after feat-auth
 # View commits per branch
 stacked log
 
+# Detect existing branch chains and register as stacks
+stacked detect
+stacked detect --dry-run
+
 # Remove merged branches from stacks
 stacked clean
 stacked clean --dry-run
@@ -73,6 +77,7 @@ stacked delete feat-auth-ui
 | `top`             | Jump to top of stack                                          |
 | `bottom`          | Jump to bottom of stack                                       |
 | `sync`            | Fetch + rebase stack on trunk (--from to start from a branch) |
+| `detect`          | Detect branch chains and register as stacks (--dry-run)       |
 | `clean`           | Remove merged branches from stacks (--dry-run to preview)     |
 | `delete <name>`   | Remove branch from stack + git                                |
 | `submit`          | Push all + create/update PRs via `gh`                         |

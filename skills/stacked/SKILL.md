@@ -20,6 +20,8 @@ What do you need?
 ├─ Rebase after changes       → §Rebasing
 ├─ Push + create PRs          → §Submitting
 ├─ Adopt existing branches    → §Adopting Branches
+├─ Detect existing branches   → §Detecting Existing Branches
+├─ Clean up merged branches   → §Cleaning Up Merged Branches
 ├─ Remove a branch            → §Deleting
 └─ Troubleshooting            → §Gotchas
 ```
@@ -36,6 +38,7 @@ What do you need?
 | `stacked top`             | Jump to top of stack                                          |
 | `stacked bottom`          | Jump to bottom of stack                                       |
 | `stacked sync`            | Fetch + rebase stack on trunk (--from to start from a branch) |
+| `stacked detect`          | Detect branch chains and register as stacks (--dry-run)       |
 | `stacked clean`           | Remove merged branches from stacks (--dry-run to preview)     |
 | `stacked delete <name>`   | Remove branch from stack + delete git branch                  |
 | `stacked submit`          | Push all branches + create/update PRs via `gh`                |
@@ -127,6 +130,17 @@ stacked adopt existing-branch                    # append to top
 stacked adopt existing-branch --after feat-auth  # insert after specific branch
 ```
 
+## Detecting Existing Branches
+
+Auto-detect linear branch chains from git history and register them as stacks:
+
+```sh
+stacked detect              # scan and register branch chains
+stacked detect --dry-run    # preview what would be registered
+```
+
+Only linear chains are detected. Forked branches (one parent with multiple children) are reported but skipped. Already-tracked branches are excluded.
+
 ## Cleaning Up Merged Branches
 
 After PRs are merged on GitHub, clean up the local branches and stack metadata:
@@ -187,3 +201,4 @@ stacked submit
 - PRs target parent branches, not trunk — this is intentional for stacked review
 - Trunk defaults to `main` — use `stacked trunk <name>` if your default branch differs
 - Rebase conflicts mid-stack will pause the operation — resolve and re-run
+- Forked branches (one parent, multiple children) are not supported — `detect` reports them but skips

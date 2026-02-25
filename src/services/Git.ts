@@ -5,6 +5,7 @@ export class GitService extends ServiceMap.Service<
   GitService,
   {
     readonly currentBranch: () => Effect.Effect<string, GitError>;
+    readonly listBranches: () => Effect.Effect<string[], GitError>;
     readonly branchExists: (name: string) => Effect.Effect<boolean, GitError>;
     readonly createBranch: (name: string, from?: string) => Effect.Effect<void, GitError>;
     readonly deleteBranch: (name: string, force?: boolean) => Effect.Effect<void, GitError>;
@@ -49,6 +50,16 @@ export class GitService extends ServiceMap.Service<
 
     return {
       currentBranch: () => run(["rev-parse", "--abbrev-ref", "HEAD"]),
+
+      listBranches: () =>
+        run(["branch", "--format=%(refname:short)"]).pipe(
+          Effect.map((output) =>
+            output
+              .split("\n")
+              .map((b) => b.trim())
+              .filter((b) => b.length > 0),
+          ),
+        ),
 
       branchExists: (name) =>
         run(["rev-parse", "--verify", name]).pipe(
@@ -108,6 +119,7 @@ export class GitService extends ServiceMap.Service<
   static layerTest = (impl: Partial<ServiceMap.Service.Shape<typeof GitService>> = {}) =>
     Layer.succeed(GitService, {
       currentBranch: () => Effect.succeed("main"),
+      listBranches: () => Effect.succeed([]),
       branchExists: () => Effect.succeed(false),
       createBranch: () => Effect.void,
       deleteBranch: () => Effect.void,

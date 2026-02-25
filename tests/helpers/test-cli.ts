@@ -44,6 +44,8 @@ export interface MockGitOptions {
   currentBranch?: string;
   isClean?: boolean;
   branches?: Record<string, boolean>;
+  allBranches?: string[];
+  isAncestor?: (ancestor: string, descendant: string) => boolean;
 }
 
 export const createMockGitService = (options: MockGitOptions = {}) =>
@@ -57,6 +59,10 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
           recorder
             .record({ service: "Git", method: "currentBranch" })
             .pipe(Effect.as(options.currentBranch ?? "main")),
+        listBranches: () =>
+          recorder
+            .record({ service: "Git", method: "listBranches" })
+            .pipe(Effect.as(options.allBranches ?? [])),
         branchExists: (name: string) =>
           recorder
             .record({ service: "Git", method: "branchExists", args: { name } })
@@ -80,7 +86,8 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
             .record({ service: "Git", method: "revParse", args: { ref } })
             .pipe(Effect.as(".git")),
         diff: () => Effect.succeed(""),
-        isAncestor: () => Effect.succeed(true),
+        isAncestor: (ancestor: string, descendant: string) =>
+          Effect.succeed(options.isAncestor?.(ancestor, descendant) ?? true),
         remote: () => Effect.succeed("origin"),
         fetch: () => recorder.record({ service: "Git", method: "fetch" }),
       };

@@ -12,6 +12,7 @@ import { submit } from "./submit.js";
 import { adopt } from "./adopt.js";
 import { log } from "./log.js";
 import { clean } from "./clean.js";
+import { detect } from "./detect.js";
 
 const root = Command.make("stacked").pipe(
   Command.withDescription("Branch-based stacked PR manager"),
@@ -32,5 +33,6 @@ export const command = root.pipe(
     adopt,
     log,
     clean,
+    detect,
   ]),
 );
