@@ -6,7 +6,6 @@ import { checkout } from "./checkout.js";
 import { top } from "./top.js";
 import { bottom } from "./bottom.js";
 import { sync } from "./sync.js";
-import { restack } from "./restack.js";
 import { deleteCmd } from "./delete.js";
 import { submit } from "./submit.js";
 import { adopt } from "./adopt.js";
@@ -25,7 +24,6 @@ export const command = root.pipe(
     top,
     bottom,
     sync,
-    restack,
     deleteCmd,
     submit,
     adopt,

@@ -30,11 +30,11 @@ stacked top
 stacked bottom
 stacked checkout feat-auth
 
-# After editing mid-stack, rebase children
-stacked restack
-
 # Sync entire stack with latest trunk
 stacked sync
+
+# After editing mid-stack, rebase only children
+stacked sync --from feat-auth
 
 # Push all branches + create/update PRs
 stacked submit
@@ -53,20 +53,19 @@ stacked delete feat-auth-ui
 
 ## Commands
 
-| Command           | Description                              |
-| ----------------- | ---------------------------------------- |
-| `trunk [name]`    | Get/set trunk branch                     |
-| `create <name>`   | Create branch on top of current          |
-| `list`            | Show stack with current branch indicator |
-| `checkout <name>` | Switch to branch                         |
-| `top`             | Jump to top of stack                     |
-| `bottom`          | Jump to bottom of stack                  |
-| `sync`            | Fetch + rebase entire stack on trunk     |
-| `restack`         | Rebase children after mid-stack edits    |
-| `delete <name>`   | Remove branch from stack + git           |
-| `submit`          | Push all + create/update PRs via `gh`    |
-| `adopt <branch>`  | Add existing branch to stack             |
-| `log`             | Show commits grouped by branch           |
+| Command           | Description                                                   |
+| ----------------- | ------------------------------------------------------------- |
+| `trunk [name]`    | Get/set trunk branch                                          |
+| `create <name>`   | Create branch on top of current                               |
+| `list`            | Show stack with current branch indicator                      |
+| `checkout <name>` | Switch to branch                                              |
+| `top`             | Jump to top of stack                                          |
+| `bottom`          | Jump to bottom of stack                                       |
+| `sync`            | Fetch + rebase stack on trunk (--from to start from a branch) |
+| `delete <name>`   | Remove branch from stack + git                                |
+| `submit`          | Push all + create/update PRs via `gh`                         |
+| `adopt <branch>`  | Add existing branch to stack                                  |
+| `log`             | Show commits grouped by branch                                |
 
 ## Data Model
 
