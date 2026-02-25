@@ -89,7 +89,9 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
 
 export const createMockStackService = (initial?: StackFile) => StackService.layerTest(initial);
 
-export const createMockGitHubService = () =>
+export const createMockGitHubService = (
+  overrides: Partial<ServiceMap.Service.Shape<typeof GitHubService>> = {},
+) =>
   Layer.effect(
     GitHubService,
     Effect.gen(function* () {
@@ -113,6 +115,7 @@ export const createMockGitHubService = () =>
             .record({ service: "GitHub", method: "getPR", args: { branch } })
             .pipe(Effect.as(null)),
         isGhInstalled: () => Effect.succeed(true),
+        ...overrides,
       };
     }),
   );
@@ -124,6 +127,7 @@ export const createMockGitHubService = () =>
 export interface TestOptions {
   git?: MockGitOptions;
   stack?: StackFile;
+  github?: Partial<ServiceMap.Service.Shape<typeof GitHubService>>;
 }
 
 export const createTestLayer = (options: TestOptions = {}) => {
@@ -133,7 +137,7 @@ export const createTestLayer = (options: TestOptions = {}) => {
 
   const stackLayer = createMockStackService(options.stack);
 
-  const ghLayer = createMockGitHubService().pipe(Layer.provide(recorderLayer));
+  const ghLayer = createMockGitHubService(options.github).pipe(Layer.provide(recorderLayer));
 
   return Layer.mergeAll(recorderLayer, gitLayer, stackLayer, ghLayer);
 };

@@ -1,6 +1,7 @@
 import { Argument, Command } from "effect/unstable/cli";
 import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
+import { GitHubService } from "../services/GitHub.js";
 import { StackService } from "../services/Stack.js";
 
 const stackNameArg = Argument.string("stack").pipe(Argument.optional);
@@ -10,6 +11,7 @@ export const list = Command.make("list", { stackName: stackNameArg }).pipe(
   Command.withHandler(({ stackName }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
+      const gh = yield* GitHubService;
       const stacks = yield* StackService;
 
       const currentBranch = yield* git.currentBranch();
@@ -54,7 +56,18 @@ export const list = Command.make("list", { stackName: stackNameArg }).pipe(
         const isCurrent = branch === currentBranch;
         const marker = isCurrent ? "* " : "  ";
         const prefix = i === 0 ? "└─" : "├─";
-        lines.push(`${marker}${prefix} ${branch}`);
+
+        const pr = yield* gh.getPR(branch).pipe(Effect.catch(() => Effect.succeed(null)));
+        const status =
+          pr === null
+            ? ""
+            : pr.state === "MERGED"
+              ? " [merged]"
+              : pr.state === "CLOSED"
+                ? " [closed]"
+                : ` [#${pr.number}]`;
+
+        lines.push(`${marker}${prefix} ${branch}${status}`);
       }
 
       yield* Console.log(lines.join("\n"));

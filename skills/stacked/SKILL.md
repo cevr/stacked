@@ -36,6 +36,7 @@ What do you need?
 | `stacked top`             | Jump to top of stack                                          |
 | `stacked bottom`          | Jump to bottom of stack                                       |
 | `stacked sync`            | Fetch + rebase stack on trunk (--from to start from a branch) |
+| `stacked clean`           | Remove merged branches from stacks (--dry-run to preview)     |
 | `stacked delete <name>`   | Remove branch from stack + delete git branch                  |
 | `stacked submit`          | Push all branches + create/update PRs via `gh`                |
 | `stacked adopt <branch>`  | Add existing git branch into the stack                        |
@@ -125,6 +126,17 @@ Bring an existing git branch into the stack:
 stacked adopt existing-branch                    # append to top
 stacked adopt existing-branch --after feat-auth  # insert after specific branch
 ```
+
+## Cleaning Up Merged Branches
+
+After PRs are merged on GitHub, clean up the local branches and stack metadata:
+
+```sh
+stacked clean              # removes all merged branches from all stacks
+stacked clean --dry-run    # preview what would be removed
+```
+
+`list` also shows merge status per branch (`[merged]`, `[closed]`, `[#N]` for open PRs).
 
 ## Deleting
 
