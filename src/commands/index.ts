@@ -2,6 +2,7 @@ import { Command } from "effect/unstable/cli";
 import { trunk } from "./trunk.js";
 import { create } from "./create.js";
 import { list } from "./list.js";
+import { stacks } from "./stacks.js";
 import { checkout } from "./checkout.js";
 import { top } from "./top.js";
 import { bottom } from "./bottom.js";
@@ -20,6 +21,7 @@ export const command = root.pipe(
     trunk,
     create,
     list,
+    stacks,
     checkout,
     top,
     bottom,

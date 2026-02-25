@@ -30,7 +30,8 @@ What do you need?
 | ------------------------- | ------------------------------------------------------------- |
 | `stacked trunk [name]`    | Get/set trunk branch (default: main)                          |
 | `stacked create <name>`   | Create branch on top of current branch                        |
-| `stacked list`            | Show stack with current branch indicator                      |
+| `stacked list [stack]`    | Show stack branches (defaults to current stack)               |
+| `stacked stacks`          | List all stacks in the repo                                   |
 | `stacked checkout <name>` | Switch to branch in stack                                     |
 | `stacked top`             | Jump to top of stack                                          |
 | `stacked bottom`          | Jump to bottom of stack                                       |
@@ -73,8 +74,10 @@ stacked create hotfix --from feat-auth
 ## Viewing the Stack
 
 ```sh
-stacked list     # shows branches with ► on current
-stacked log      # shows commits grouped by branch
+stacked list              # shows current stack's branches
+stacked list feat-auth    # shows a specific stack by name
+stacked stacks            # lists all stacks in the repo
+stacked log               # shows commits grouped by branch
 ```
 
 ## Navigation

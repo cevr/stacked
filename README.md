@@ -25,6 +25,12 @@ stacked create feat-auth-ui
 # See the stack
 stacked list
 
+# See a specific stack by name
+stacked list feat-auth
+
+# List all stacks in the repo
+stacked stacks
+
 # Navigate
 stacked top
 stacked bottom
@@ -57,7 +63,8 @@ stacked delete feat-auth-ui
 | ----------------- | ------------------------------------------------------------- |
 | `trunk [name]`    | Get/set trunk branch                                          |
 | `create <name>`   | Create branch on top of current                               |
-| `list`            | Show stack with current branch indicator                      |
+| `list [stack]`    | Show stack branches (defaults to current stack)               |
+| `stacks`          | List all stacks in the repo                                   |
 | `checkout <name>` | Switch to branch                                              |
 | `top`             | Jump to top of stack                                          |
 | `bottom`          | Jump to bottom of stack                                       |
