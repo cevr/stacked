@@ -7,7 +7,7 @@ import { StackService } from "../services/Stack.js";
 const dryRunFlag = Flag.boolean("dry-run");
 
 export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
-  Command.withDescription("Remove merged branches from stacks"),
+  Command.withDescription("Remove merged branches from stacks (bottom-up)"),
   Command.withHandler(({ dryRun }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
@@ -17,23 +17,38 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
       const currentBranch = yield* git.currentBranch();
       const data = yield* stacks.load();
 
-      const merged: Array<{ stackName: string; branch: string }> = [];
+      const toRemove: Array<{ stackName: string; branch: string }> = [];
+      const skippedMerged: Array<{ stackName: string; branch: string }> = [];
 
       for (const [stackName, stack] of Object.entries(data.stacks)) {
+        let hitNonMerged = false;
         for (const branch of stack.branches) {
           const pr = yield* gh.getPR(branch).pipe(Effect.catch(() => Effect.succeed(null)));
-          if (pr !== null && pr.state === "MERGED") {
-            merged.push({ stackName, branch });
+          const isMerged = pr !== null && pr.state === "MERGED";
+
+          if (!hitNonMerged && isMerged) {
+            toRemove.push({ stackName, branch });
+          } else {
+            if (!isMerged) hitNonMerged = true;
+            if (isMerged) skippedMerged.push({ stackName, branch });
           }
         }
       }
 
-      if (merged.length === 0) {
+      if (toRemove.length === 0) {
         yield* Console.log("Nothing to clean");
+        if (skippedMerged.length > 0) {
+          yield* Console.log(
+            `\nNote: ${skippedMerged.length} merged branch${skippedMerged.length === 1 ? "" : "es"} skipped (non-merged branches below):`,
+          );
+          for (const { branch, stackName } of skippedMerged) {
+            yield* Console.log(`  ${branch} (${stackName})`);
+          }
+        }
         return;
       }
 
-      for (const { stackName, branch } of merged) {
+      for (const { stackName, branch } of toRemove) {
         if (dryRun) {
           yield* Console.log(`Would remove ${branch} from ${stackName}`);
         } else {
@@ -49,12 +64,21 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
 
       if (dryRun) {
         yield* Console.log(
-          `\n${merged.length} branch${merged.length === 1 ? "" : "es"} would be removed`,
+          `\n${toRemove.length} branch${toRemove.length === 1 ? "" : "es"} would be removed`,
         );
       } else {
         yield* Console.log(
-          `\nCleaned ${merged.length} merged branch${merged.length === 1 ? "" : "es"}`,
+          `\nCleaned ${toRemove.length} merged branch${toRemove.length === 1 ? "" : "es"}`,
         );
+      }
+
+      if (skippedMerged.length > 0) {
+        yield* Console.log(
+          `\nNote: ${skippedMerged.length} merged branch${skippedMerged.length === 1 ? "" : "es"} skipped (non-merged branches below):`,
+        );
+        for (const { branch, stackName } of skippedMerged) {
+          yield* Console.log(`  ${branch} (${stackName})`);
+        }
       }
     }),
   ),
