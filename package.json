@@ -1,6 +1,10 @@
 {
   "name": "@cvr/stacked",
   "version": "0.2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cevr/stacked"
+  },
   "bin": {
     "stacked": "./bin/stacked"
   },
