@@ -25,10 +25,11 @@ BunRuntime.runMain(
   cli.pipe(
     Effect.provide(AppLayer),
     Effect.catch((e) => {
+      const tag = e !== null && typeof e === "object" && "_tag" in e ? String(e._tag) : null;
+      const isKnown = tag === "GitError" || tag === "StackError" || tag === "GitHubError";
+      const msg = e !== null && typeof e === "object" && "message" in e ? String(e.message) : null;
       const message =
-        e !== null && typeof e === "object" && "message" in e && typeof e.message === "string"
-          ? e.message
-          : String(e);
+        isKnown && msg !== null ? msg : `Unexpected error: ${JSON.stringify(e, null, 2)}`;
       return Console.error(message).pipe(
         Effect.andThen(
           Effect.sync(() => {

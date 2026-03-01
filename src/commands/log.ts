@@ -15,7 +15,10 @@ export const log = Command.make("log", { json: jsonFlag }).pipe(
 
       const result = yield* stacks.currentStack();
       if (result === null) {
-        return yield* new StackError({ message: "Not on a stacked branch" });
+        return yield* new StackError({
+          message:
+            "Not on a stacked branch. Run 'stacked list' to see your stacks, or 'stacked create <name>' to start one.",
+        });
       }
 
       const trunk = yield* stacks.getTrunk();

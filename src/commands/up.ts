@@ -14,7 +14,10 @@ export const up = Command.make("up").pipe(
       const currentBranch = yield* git.currentBranch();
       const result = yield* stacks.currentStack();
       if (result === null) {
-        return yield* new StackError({ message: "Not on a stacked branch" });
+        return yield* new StackError({
+          message:
+            "Not on a stacked branch. Run 'stacked list' to see your stacks, or 'stacked create <name>' to start one.",
+        });
       }
 
       const { branches } = result.stack;

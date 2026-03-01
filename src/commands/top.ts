@@ -13,12 +13,17 @@ export const top = Command.make("top").pipe(
 
       const result = yield* stacks.currentStack();
       if (result === null) {
-        return yield* new StackError({ message: "Not on a stacked branch" });
+        return yield* new StackError({
+          message:
+            "Not on a stacked branch. Run 'stacked list' to see your stacks, or 'stacked create <name>' to start one.",
+        });
       }
 
       const topBranch = result.stack.branches[result.stack.branches.length - 1];
       if (topBranch === undefined) {
-        return yield* new StackError({ message: "Stack is empty" });
+        return yield* new StackError({
+          message: "Stack is empty. Run 'stacked create <name>' to add a branch.",
+        });
       }
 
       yield* git.checkout(topBranch);

@@ -21,8 +21,13 @@ export const init = Command.make("init").pipe(
       const targetDir = join(skillsDir, "stacked");
       const targetPath = join(targetDir, "SKILL.md");
 
-      mkdirSync(targetDir, { recursive: true });
-      writeFileSync(targetPath, skillContent);
+      yield* Effect.try({
+        try: () => {
+          mkdirSync(targetDir, { recursive: true });
+          writeFileSync(targetPath, skillContent);
+        },
+        catch: (e) => new StackError({ message: `Failed to write skill: ${e}` }),
+      });
 
       yield* Console.error(`Installed stacked skill to ${targetPath}`);
     }),
