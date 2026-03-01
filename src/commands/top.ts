@@ -1,14 +1,16 @@
-import { Command } from "effect/unstable/cli";
-import { Effect } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
+import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { ErrorCode, StackError } from "../errors/index.js";
 import { success } from "../ui.js";
 
-export const top = Command.make("top").pipe(
+const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
+
+export const top = Command.make("top", { json: jsonFlag }).pipe(
   Command.withDescription("Checkout top branch of stack"),
   Command.withExamples([{ command: "stacked top", description: "Jump to the top of the stack" }]),
-  Command.withHandler(() =>
+  Command.withHandler(({ json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
@@ -31,7 +33,13 @@ export const top = Command.make("top").pipe(
       }
 
       yield* git.checkout(topBranch);
-      yield* success(`Switched to ${topBranch}`);
+
+      if (json) {
+        // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+        yield* Console.log(JSON.stringify({ branch: topBranch }, null, 2));
+      } else {
+        yield* success(`Switched to ${topBranch}`);
+      }
     }),
   ),
 );
