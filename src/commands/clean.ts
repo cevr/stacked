@@ -85,10 +85,18 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
           }
           yield* git
             .deleteBranch(branch, true)
-            .pipe(Effect.catchTag("GitError", () => Effect.void));
+            .pipe(
+              Effect.catchTag("GitError", (e) =>
+                Console.error(`Warning: failed to delete local branch ${branch}: ${e.message}`),
+              ),
+            );
           yield* git
             .deleteRemoteBranch(branch)
-            .pipe(Effect.catchTag("GitError", () => Effect.void));
+            .pipe(
+              Effect.catchTag("GitError", (e) =>
+                Console.error(`Warning: failed to delete remote branch ${branch}: ${e.message}`),
+              ),
+            );
           yield* stacks.removeBranch(stackName, branch);
           yield* Console.error(`Removed ${branch} from ${stackName}`);
         }
@@ -102,6 +110,7 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
         yield* Console.error(
           `\nCleaned ${toRemove.length} merged branch${toRemove.length === 1 ? "" : "es"}`,
         );
+        yield* Console.error("Run 'stacked sync' to rebase remaining branches onto trunk.");
       }
 
       if (skippedMerged.length > 0) {

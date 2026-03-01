@@ -22,6 +22,15 @@ export const create = Command.make("create", { name: nameArg, from: fromFlag }).
       const baseBranch = Option.isSome(from) ? from.value : currentBranch;
       const trunk = yield* stacks.getTrunk();
 
+      if (Option.isSome(from)) {
+        const fromExists = yield* git.branchExists(from.value);
+        if (!fromExists) {
+          return yield* new StackError({
+            message: `Branch "${from.value}" does not exist`,
+          });
+        }
+      }
+
       const branchAlreadyExists = yield* git.branchExists(name);
       if (branchAlreadyExists) {
         return yield* new StackError({ message: `Branch "${name}" already exists` });

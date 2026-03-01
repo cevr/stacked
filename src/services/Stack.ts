@@ -238,7 +238,7 @@ export class StackService extends ServiceMap.Service<
     }),
   );
 
-  static layerTest = (data?: StackFile) => {
+  static layerTest = (data?: StackFile, options?: { currentBranch?: string }) => {
     const initial = data ?? emptyStackFile;
     return Layer.effect(
       StackService,
@@ -260,7 +260,7 @@ export class StackService extends ServiceMap.Service<
 
           currentStack: Effect.fn("test.currentStack")(function* () {
             const d = yield* Ref.get(ref);
-            return findBranchStack(d, "test-branch");
+            return findBranchStack(d, options?.currentBranch ?? "test-branch");
           }),
 
           addBranch: Effect.fn("test.addBranch")(function* (

@@ -97,7 +97,8 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
     }),
   );
 
-export const createMockStackService = (initial?: StackFile) => StackService.layerTest(initial);
+export const createMockStackService = (initial?: StackFile, options?: { currentBranch?: string }) =>
+  StackService.layerTest(initial, options);
 
 export const createMockGitHubService = (
   overrides: Partial<ServiceMap.Service.Shape<typeof GitHubService>> = {},
@@ -145,7 +146,9 @@ export const createTestLayer = (options: TestOptions = {}) => {
 
   const gitLayer = createMockGitService(options.git).pipe(Layer.provide(recorderLayer));
 
-  const stackLayer = createMockStackService(options.stack);
+  const stackLayer = createMockStackService(options.stack, {
+    currentBranch: options.git?.currentBranch,
+  });
 
   const ghLayer = createMockGitHubService(options.github).pipe(Layer.provide(recorderLayer));
 
