@@ -3,7 +3,7 @@ import { Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { StackError } from "../errors/index.js";
-import { withSpinner, success } from "../ui.js";
+import { withSpinner, success, warn } from "../ui.js";
 
 const trunkFlag = Flag.string("trunk").pipe(
   Flag.optional,
@@ -59,6 +59,10 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
           });
         }
         startIdx = idx + 1;
+        if (startIdx >= branches.length) {
+          yield* warn(`Nothing to sync — ${fromBranch} is the last branch in the stack`);
+          return;
+        }
       }
 
       yield* Effect.gen(function* () {
@@ -68,18 +72,20 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
           const base = i === 0 ? `origin/${trunk}` : (branches[i - 1] ?? `origin/${trunk}`);
           yield* git.checkout(branch);
           yield* withSpinner(`Rebasing ${branch} onto ${base}`, git.rebase(base)).pipe(
-            Effect.catchTag("GitError", (e) =>
-              git.rebaseAbort().pipe(
+            Effect.catchTag("GitError", (e) => {
+              const hint =
+                i === 0 ? "stacked sync" : `stacked sync --from ${branches[i - 1] ?? trunk}`;
+              return git.rebaseAbort().pipe(
                 Effect.ignore,
                 Effect.andThen(
                   Effect.fail(
                     new StackError({
-                      message: `Rebase failed on ${branch}: ${e.message}\nResolve conflicts manually or re-run 'stacked sync --from ${branches[i - 1] ?? trunk}'`,
+                      message: `Rebase failed on ${branch}: ${e.message}\nResolve conflicts manually or re-run '${hint}'`,
                     }),
                   ),
                 ),
-              ),
-            ),
+              );
+            }),
           );
         }
       }).pipe(Effect.ensuring(git.checkout(currentBranch).pipe(Effect.ignore)));

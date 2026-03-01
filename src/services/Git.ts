@@ -11,6 +11,11 @@ export class GitService extends ServiceMap.Service<
     readonly deleteBranch: (name: string, force?: boolean) => Effect.Effect<void, GitError>;
     readonly checkout: (name: string) => Effect.Effect<void, GitError>;
     readonly rebase: (onto: string) => Effect.Effect<void, GitError>;
+    readonly rebaseOnto: (
+      branch: string,
+      newBase: string,
+      oldBase: string,
+    ) => Effect.Effect<void, GitError>;
     readonly rebaseAbort: () => Effect.Effect<void, GitError>;
     readonly push: (branch: string, options?: { force?: boolean }) => Effect.Effect<void, GitError>;
     readonly log: (
@@ -121,6 +126,9 @@ export class GitService extends ServiceMap.Service<
 
       rebase: (onto) => run(["rebase", onto]).pipe(Effect.asVoid),
 
+      rebaseOnto: (branch, newBase, oldBase) =>
+        run(["rebase", "--onto", newBase, oldBase, branch]).pipe(Effect.asVoid),
+
       rebaseAbort: () => run(["rebase", "--abort"]).pipe(Effect.asVoid),
 
       push: (branch, options) => {
@@ -173,6 +181,7 @@ export class GitService extends ServiceMap.Service<
       deleteBranch: () => Effect.void,
       checkout: () => Effect.void,
       rebase: () => Effect.void,
+      rebaseOnto: () => Effect.void,
       rebaseAbort: () => Effect.void,
       push: () => Effect.void,
       log: () => Effect.succeed(""),
