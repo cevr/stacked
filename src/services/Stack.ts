@@ -1,4 +1,5 @@
 import { Effect, Layer, Ref, Schema, ServiceMap } from "effect";
+import { rename } from "node:fs/promises";
 import type { GitError } from "../errors/index.js";
 import { StackError } from "../errors/index.js";
 import { GitService } from "./Git.js";
@@ -88,21 +89,28 @@ export class StackService extends ServiceMap.Service<
         });
         return yield* decodeStackFile(text).pipe(
           Effect.catchTag("SchemaError", (e) =>
-            Effect.logWarning(`Corrupted stack file, resetting: ${e.message}`).pipe(
-              Effect.as(emptyStackFile),
-            ),
+            Effect.gen(function* () {
+              yield* Effect.logWarning(`Corrupted stack file, resetting: ${e.message}`);
+              const trunk = yield* detectTrunk();
+              return { ...emptyStackFile, trunk } satisfies StackFile;
+            }),
           ),
         );
       });
 
       const save = Effect.fn("StackService.save")(function* (data: StackFile) {
         const path = yield* stackFilePath();
+        const tmpPath = `${path}.tmp`;
         const text = yield* encodeStackFile(data).pipe(
           Effect.mapError(() => new StackError({ message: `Failed to encode stack data` })),
         );
         yield* Effect.tryPromise({
-          try: () => Bun.write(path, text + "\n"),
-          catch: () => new StackError({ message: `Failed to write ${path}` }),
+          try: () => Bun.write(tmpPath, text + "\n"),
+          catch: () => new StackError({ message: `Failed to write ${tmpPath}` }),
+        });
+        yield* Effect.tryPromise({
+          try: () => rename(tmpPath, path),
+          catch: () => new StackError({ message: `Failed to rename ${tmpPath} to ${path}` }),
         });
       });
 
