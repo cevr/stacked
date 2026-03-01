@@ -88,7 +88,14 @@ export class StackService extends ServiceMap.Service<
         return yield* decodeStackFile(text).pipe(
           Effect.catchTag("SchemaError", (e) =>
             Effect.gen(function* () {
-              yield* Effect.logWarning(`Corrupted stack file, resetting: ${e.message}`);
+              const backupPath = `${path}.backup`;
+              yield* Effect.tryPromise({
+                try: () => Bun.write(backupPath, text),
+                catch: () => new StackError({ message: `Failed to write backup to ${backupPath}` }),
+              });
+              yield* Effect.logWarning(
+                `Corrupted stack file, resetting: ${e.message}\nBackup saved to ${backupPath}`,
+              );
               const trunk = yield* detectTrunk();
               return { ...emptyStackFile, trunk } satisfies StackFile;
             }),

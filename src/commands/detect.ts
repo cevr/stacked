@@ -122,6 +122,11 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
       for (const chain of chains) {
         const name = chain[0];
         if (name === undefined) continue;
+        const currentData = yield* stacks.load();
+        if (currentData.stacks[name] !== undefined) {
+          yield* warn(`Stack "${name}" already exists, skipping: ${chain.join(" → ")}`);
+          continue;
+        }
         if (dryRun) {
           yield* Console.error(`Would create stack "${name}": ${chain.join(" → ")}`);
         } else {

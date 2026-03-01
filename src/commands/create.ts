@@ -37,6 +37,12 @@ export const create = Command.make("create", {
       const baseBranch = Option.isSome(from) ? from.value : currentBranch;
       const trunk = yield* stacks.getTrunk();
 
+      if (name === trunk) {
+        return yield* new StackError({
+          message: `Cannot create a branch with the same name as trunk ("${trunk}")`,
+        });
+      }
+
       if (Option.isSome(from)) {
         const fromExists = yield* git.branchExists(from.value);
         if (!fromExists) {

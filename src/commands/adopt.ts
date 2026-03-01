@@ -34,6 +34,13 @@ export const adopt = Command.make("adopt", {
 
       yield* validateBranchName(branch);
 
+      const trunk = yield* stacks.getTrunk();
+      if (branch === trunk) {
+        return yield* new StackError({
+          message: `Cannot adopt trunk branch "${trunk}" into a stack`,
+        });
+      }
+
       const exists = yield* git.branchExists(branch);
       if (!exists) {
         return yield* new StackError({ message: `Branch "${branch}" does not exist` });
@@ -50,7 +57,6 @@ export const adopt = Command.make("adopt", {
 
       const result = yield* stacks.currentStack();
       if (result === null) {
-        const trunk = yield* stacks.getTrunk();
         const currentBranch = yield* git.currentBranch();
         if (currentBranch === trunk) {
           yield* stacks.createStack(branch, [branch]);

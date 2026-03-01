@@ -24,6 +24,11 @@ const isNoColor = flagArgs.has("--no-color");
 
 if (isNoColor) process.env["NO_COLOR"] = "1";
 
+if (isVerbose && isQuiet) {
+  process.stderr.write("Error: --verbose and --quiet are mutually exclusive\n");
+  process.exitCode = 2;
+}
+
 // ============================================================================
 // CLI
 // ============================================================================
