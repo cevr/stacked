@@ -20,6 +20,7 @@ import { status } from "./status.js";
 import { doctor } from "./doctor.js";
 import { rename } from "./rename.js";
 import { reorder } from "./reorder.js";
+import { split } from "./split.js";
 
 const root = Command.make("stacked").pipe(
   Command.withDescription(
@@ -56,5 +57,6 @@ export const command = root.pipe(
     doctor,
     rename,
     reorder,
+    split,
   ]),
 );
