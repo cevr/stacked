@@ -14,19 +14,23 @@ const keepRemoteFlag = Flag.boolean("keep-remote").pipe(
   Flag.withDescription("Don't delete the remote branch"),
 );
 const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
+const dryRunFlag = Flag.boolean("dry-run").pipe(
+  Flag.withDescription("Show what would happen without making changes"),
+);
 
 export const deleteCmd = Command.make("delete", {
   name: nameArg,
   force: forceFlag,
   keepRemote: keepRemoteFlag,
   json: jsonFlag,
+  dryRun: dryRunFlag,
 }).pipe(
   Command.withDescription("Remove branch from stack and delete git branch"),
   Command.withExamples([
     { command: "stacked delete feat-old", description: "Delete a leaf branch" },
     { command: "stacked delete feat-mid --force", description: "Force delete a mid-stack branch" },
   ]),
-  Command.withHandler(({ name, force, keepRemote, json }) =>
+  Command.withHandler(({ name, force, keepRemote, json, dryRun }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
@@ -50,6 +54,31 @@ export const deleteCmd = Command.make("delete", {
         });
       }
 
+      const hadChildren = idx < stack.branches.length - 1;
+      const willDeleteRemote = !keepRemote;
+
+      if (dryRun) {
+        if (json) {
+          // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+          yield* Console.log(
+            JSON.stringify(
+              { branch: name, stack: stackName, hadChildren, deleteRemote: willDeleteRemote },
+              null,
+              2,
+            ),
+          );
+        } else {
+          yield* Console.error(`Would delete branch "${name}" from stack "${stackName}"`);
+          if (hadChildren) {
+            yield* Console.error("Warning: branch has children that would be orphaned");
+          }
+          if (willDeleteRemote) {
+            yield* Console.error("Would also delete remote branch");
+          }
+        }
+        return;
+      }
+
       const confirmed = yield* confirm(
         `Delete branch "${name}"${keepRemote ? "" : " (local + remote)"}?`,
       );
@@ -71,12 +100,10 @@ export const deleteCmd = Command.make("delete", {
         yield* git.checkout(parent);
       }
 
-      const hadChildren = idx < stack.branches.length - 1;
-
       yield* git.deleteBranch(name, force);
       yield* stacks.removeBranch(stackName, name);
 
-      if (!keepRemote) {
+      if (willDeleteRemote) {
         yield* git.deleteRemoteBranch(name).pipe(Effect.catchTag("GitError", () => Effect.void));
       }
 
