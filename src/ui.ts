@@ -52,26 +52,25 @@ export const OutputConfig = ServiceMap.Reference("@cvr/stacked/OutputConfig", {
 
 const stdinIsTTY = process.stdin.isTTY === true;
 
-export const confirm = (message: string) =>
-  Effect.gen(function* () {
-    const config = yield* OutputConfig;
-    if (config.yes || !stdinIsTTY) return true;
+export const confirm = Effect.fn("ui.confirm")(function* (message: string) {
+  const config = yield* OutputConfig;
+  if (config.yes || !stdinIsTTY) return true;
 
-    process.stderr.write(`${message} [y/N] `);
-    const answer = yield* Effect.tryPromise({
-      try: () => {
-        const rl = createInterface({ input: process.stdin, output: process.stderr });
-        return new Promise<string>((resolve) => {
-          rl.question("", (ans) => {
-            rl.close();
-            resolve(ans);
-          });
+  process.stderr.write(`${message} [y/N] `);
+  const answer = yield* Effect.tryPromise({
+    try: () => {
+      const rl = createInterface({ input: process.stdin, output: process.stderr });
+      return new Promise<string>((resolve) => {
+        rl.question("", (ans) => {
+          rl.close();
+          resolve(ans);
         });
-      },
-      catch: () => "n" as const,
-    });
-    return answer.trim().toLowerCase() === "y";
+      });
+    },
+    catch: () => "n" as const,
   });
+  return answer.trim().toLowerCase() === "y";
+});
 
 // ============================================================================
 // Styled Output (all write to stderr)
@@ -82,35 +81,31 @@ const write = (msg: string) =>
     process.stderr.write(msg + "\n");
   });
 
-export const success = (msg: string) =>
-  Effect.gen(function* () {
-    const config = yield* OutputConfig;
-    if (config.quiet) return;
-    yield* write(getColors().green(`✓ ${msg}`));
-  });
+export const success = Effect.fn("ui.success")(function* (msg: string) {
+  const config = yield* OutputConfig;
+  if (config.quiet) return;
+  yield* write(getColors().green(`✓ ${msg}`));
+});
 
-export const warn = (msg: string) =>
-  Effect.gen(function* () {
-    const config = yield* OutputConfig;
-    if (config.quiet) return;
-    yield* write(getColors().yellow(`⚠ ${msg}`));
-  });
+export const warn = Effect.fn("ui.warn")(function* (msg: string) {
+  const config = yield* OutputConfig;
+  if (config.quiet) return;
+  yield* write(getColors().yellow(`⚠ ${msg}`));
+});
 
-export const info = (msg: string) =>
-  Effect.gen(function* () {
-    const config = yield* OutputConfig;
-    if (config.quiet) return;
-    yield* write(getColors().cyan(msg));
-  });
+export const info = Effect.fn("ui.info")(function* (msg: string) {
+  const config = yield* OutputConfig;
+  if (config.quiet) return;
+  yield* write(getColors().cyan(msg));
+});
 
 export const error = (msg: string) => write(getColors().red(msg));
 
-export const verbose = (msg: string) =>
-  Effect.gen(function* () {
-    const config = yield* OutputConfig;
-    if (!config.verbose) return;
-    yield* write(getColors().dim(msg));
-  });
+export const verbose = Effect.fn("ui.verbose")(function* (msg: string) {
+  const config = yield* OutputConfig;
+  if (!config.verbose) return;
+  yield* write(getColors().dim(msg));
+});
 
 // ============================================================================
 // Spinner
