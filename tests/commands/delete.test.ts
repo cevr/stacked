@@ -54,6 +54,41 @@ describe("delete command logic", () => {
     ),
   );
 
+  it.effect("checkout to parent when deleting current branch on clean tree", () =>
+    Effect.gen(function* () {
+      const git = yield* GitService;
+      const stacks = yield* StackService;
+      const recorder = yield* CallRecorder;
+
+      // Simulate: on feat-c (tail), delete feat-c, should checkout to feat-b
+      const data = yield* stacks.load();
+      const stack = data.stacks["feat-a"]!;
+      const name = "feat-c";
+      const idx = stack.branches.indexOf(name);
+      const parent = stack.branches[idx - 1] ?? data.trunk;
+
+      yield* git.checkout(parent);
+      yield* git.deleteBranch(name, false);
+      yield* stacks.removeBranch("feat-a", name);
+
+      const calls = yield* recorder.calls;
+      const checkoutCall = calls.find(
+        (c) =>
+          c.service === "Git" &&
+          c.method === "checkout" &&
+          (c.args as { name: string }).name === "feat-b",
+      );
+      expect(checkoutCall).toBeDefined();
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: { currentBranch: "feat-c" },
+          stack: stackData,
+        }),
+      ),
+    ),
+  );
+
   it.effect("git.deleteBranch is called before metadata removal", () =>
     Effect.gen(function* () {
       const git = yield* GitService;

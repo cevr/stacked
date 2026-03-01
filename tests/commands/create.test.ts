@@ -25,6 +25,39 @@ describe("create command logic", () => {
     ),
   );
 
+  it.effect("findBranchStack returns existing stack for tracked branch", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+
+      yield* stacks.createStack("feat-a", ["feat-a", "feat-b"]);
+
+      const result = yield* stacks.findBranchStack("feat-b");
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe("feat-a");
+      expect(result?.stack.branches).toEqual(["feat-a", "feat-b"]);
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: { currentBranch: "main" },
+        }),
+      ),
+    ),
+  );
+
+  it.effect("findBranchStack returns null for untracked branch", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const result = yield* stacks.findBranchStack("unknown-branch");
+      expect(result).toBeNull();
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: { currentBranch: "main" },
+        }),
+      ),
+    ),
+  );
+
   it.effect("adds to existing stack when branching from stacked branch", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;

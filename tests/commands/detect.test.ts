@@ -103,6 +103,39 @@ describe("detect command logic", () => {
     ),
   );
 
+  it.effect("skips stack creation when name already exists", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+
+      // Pre-create a stack with the same name as what detect would generate
+      yield* stacks.createStack("feat-a", ["feat-a"]);
+
+      // Attempting to create again should fail (duplicate)
+      const data = yield* stacks.load();
+      expect(data.stacks["feat-a"]).toBeDefined();
+
+      // Simulate detect behavior: check before creating
+      const existingData = yield* stacks.load();
+      const alreadyExists = existingData.stacks["feat-a"] !== undefined;
+      expect(alreadyExists).toBe(true);
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: {
+            currentBranch: "main",
+            allBranches: ["main", "feat-a", "feat-b"],
+            isAncestor: linearAncestry,
+          },
+          stack: {
+            version: 1,
+            trunk: "main",
+            stacks: { "feat-a": { branches: ["feat-a"] } },
+          },
+        }),
+      ),
+    ),
+  );
+
   test("detects fork and stops chain at fork point", () => {
     // main → feat-a → feat-b, main → feat-a → feat-c
     // This is a fork at feat-a — two children

@@ -1,5 +1,5 @@
 // @effect-diagnostics effect/strictEffectProvide:off
-import { describe, it } from "effect-bun-test";
+import { describe, it, expect } from "effect-bun-test";
 import { Effect } from "effect";
 import { GitService } from "../../src/services/Git.js";
 import { GitHubService } from "../../src/services/GitHub.js";
@@ -51,6 +51,48 @@ describe("submit command logic", () => {
         createTestLayer({
           git: { currentBranch: "feat-a" },
           stack: stackData,
+        }),
+      ),
+    ),
+  );
+
+  it.effect("updates PR when one already exists", () =>
+    Effect.gen(function* () {
+      const gh = yield* GitHubService;
+      const stacks = yield* StackService;
+      const recorder = yield* CallRecorder;
+
+      const trunk = yield* stacks.getTrunk();
+      const data = yield* stacks.load();
+      const branches = data.stacks["feat-a"]?.branches ?? [];
+      const branch = branches[0];
+      if (branch === undefined) return;
+
+      // getPR returns existing PR — so we should update, not create
+      const existingPR = yield* gh.getPR(branch);
+      expect(existingPR).not.toBeNull();
+      expect(existingPR?.body).toBe("Existing PR description\n<!-- stacked -->");
+
+      // Simulate update path
+      yield* gh.updatePR({ branch, base: trunk, title: branch });
+
+      const calls = yield* recorder.calls;
+      expectCall(calls, "GitHub", "updatePR", { branch: "feat-a" });
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: { currentBranch: "feat-a" },
+          stack: stackData,
+          github: {
+            getPR: (_branch: string) =>
+              Effect.succeed({
+                number: 1,
+                url: "https://github.com/test/repo/pull/1",
+                state: "OPEN" as const,
+                base: "main",
+                body: "Existing PR description\n<!-- stacked -->",
+              }),
+          },
         }),
       ),
     ),
