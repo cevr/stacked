@@ -16,6 +16,7 @@ import { log } from "./log.js";
 import { clean } from "./clean.js";
 import { detect } from "./detect.js";
 import { init } from "./init.js";
+import { status } from "./status.js";
 
 const root = Command.make("stacked").pipe(
   Command.withDescription("Branch-based stacked PR manager"),
@@ -40,5 +41,6 @@ export const command = root.pipe(
     clean,
     detect,
     init,
+    status,
   ]),
 );
