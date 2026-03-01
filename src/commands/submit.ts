@@ -106,12 +106,15 @@ const updatePRBody = (
   return metadata;
 };
 
+const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
+
 export const submit = Command.make("submit", {
   draft: draftFlag,
   noForce: noForceFlag,
   dryRun: dryRunFlag,
   title: titleFlag,
   body: bodyFlag,
+  json: jsonFlag,
 }).pipe(
   Command.withDescription("Push all stack branches and create/update PRs via gh"),
   Command.withExamples([
@@ -122,7 +125,7 @@ export const submit = Command.make("submit", {
       description: "With PR title and body",
     },
   ]),
-  Command.withHandler(({ draft, noForce, dryRun, title: titleOpt, body: bodyOpt }) =>
+  Command.withHandler(({ draft, noForce, dryRun, title: titleOpt, body: bodyOpt, json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
@@ -225,8 +228,13 @@ export const submit = Command.make("submit", {
       }
 
       // Print structured output to stdout
-      for (const r of results) {
-        yield* Console.log(`${r.branch} #${r.number} ${r.url} ${r.action}`);
+      if (json) {
+        // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+        yield* Console.log(JSON.stringify({ results }, null, 2));
+      } else {
+        for (const r of results) {
+          yield* Console.log(`${r.branch} #${r.number} ${r.url} ${r.action}`);
+        }
       }
     }),
   ),

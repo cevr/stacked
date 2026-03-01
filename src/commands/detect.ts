@@ -7,14 +7,15 @@ import { success, warn, info } from "../ui.js";
 const dryRunFlag = Flag.boolean("dry-run").pipe(
   Flag.withDescription("Show what would be detected without making changes"),
 );
+const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
 
-export const detect = Command.make("detect", { dryRun: dryRunFlag }).pipe(
+export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFlag }).pipe(
   Command.withDescription("Detect and register branch stacks from git history"),
   Command.withExamples([
     { command: "stacked detect", description: "Auto-discover and register stacks" },
     { command: "stacked detect --dry-run", description: "Preview what would be detected" },
   ]),
-  Command.withHandler(({ dryRun }) =>
+  Command.withHandler(({ dryRun, json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
@@ -96,6 +97,23 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag }).pipe(
         chains.push(chain);
       }
 
+      // Report forks
+      const forkPoints = untracked.filter((b) => {
+        const children = untracked.filter((c) => childOf.get(c) === b);
+        return children.length > 1;
+      });
+      const forks = forkPoints.map((b) => ({
+        branch: b,
+        children: untracked.filter((c) => childOf.get(c) === b),
+      }));
+
+      if (json) {
+        const stacksData = chains.map((chain) => ({ name: chain[0] ?? "", branches: chain }));
+        // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+        yield* Console.log(JSON.stringify({ stacks: stacksData, forks }, null, 2));
+        return;
+      }
+
       if (chains.length === 0) {
         yield* info("No linear branch chains detected");
         return;
@@ -118,16 +136,10 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag }).pipe(
         );
       }
 
-      // Report forks
-      const forkPoints = untracked.filter((b) => {
-        const children = untracked.filter((c) => childOf.get(c) === b);
-        return children.length > 1;
-      });
-      if (forkPoints.length > 0) {
+      if (forks.length > 0) {
         yield* warn("Forked branches detected (not supported yet):");
-        for (const branch of forkPoints) {
-          const children = untracked.filter((c) => childOf.get(c) === branch);
-          yield* Console.error(`  ${branch} → ${children.join(", ")}`);
+        for (const fork of forks) {
+          yield* Console.error(`  ${fork.branch} → ${fork.children.join(", ")}`);
         }
       }
     }),

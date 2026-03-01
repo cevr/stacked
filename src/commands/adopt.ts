@@ -10,8 +10,13 @@ const afterFlag = Flag.string("after").pipe(
   Flag.withAlias("a"),
   Flag.withDescription("Insert after this branch in the stack"),
 );
+const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
 
-export const adopt = Command.make("adopt", { branch: branchArg, after: afterFlag }).pipe(
+export const adopt = Command.make("adopt", {
+  branch: branchArg,
+  after: afterFlag,
+  json: jsonFlag,
+}).pipe(
   Command.withDescription("Adopt existing git branch into current stack"),
   Command.withExamples([
     { command: "stacked adopt feat-existing", description: "Add branch to current stack" },
@@ -20,7 +25,7 @@ export const adopt = Command.make("adopt", { branch: branchArg, after: afterFlag
       description: "Insert after a specific branch",
     },
   ]),
-  Command.withHandler(({ branch, after }) =>
+  Command.withHandler(({ branch, after, json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
@@ -53,7 +58,14 @@ export const adopt = Command.make("adopt", { branch: branchArg, after: afterFlag
         yield* stacks.addBranch(result.name, branch, afterBranch);
       }
 
-      yield* Console.error(`Adopted ${branch} into stack`);
+      if (json) {
+        const stackResult = yield* stacks.currentStack();
+        const stackName = stackResult?.name ?? branch;
+        // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+        yield* Console.log(JSON.stringify({ adopted: branch, stack: stackName }, null, 2));
+      } else {
+        yield* Console.error(`Adopted ${branch} into stack`);
+      }
     }),
   ),
 );

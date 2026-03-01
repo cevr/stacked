@@ -10,8 +10,13 @@ const fromFlag = Flag.string("from").pipe(
   Flag.withAlias("f"),
   Flag.withDescription("Branch from a specific branch instead of current"),
 );
+const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
 
-export const create = Command.make("create", { name: nameArg, from: fromFlag }).pipe(
+export const create = Command.make("create", {
+  name: nameArg,
+  from: fromFlag,
+  json: jsonFlag,
+}).pipe(
   Command.withDescription("Create a new branch on top of current branch in stack"),
   Command.withExamples([
     { command: "stacked create feat-auth", description: "Create branch on top of current" },
@@ -20,7 +25,7 @@ export const create = Command.make("create", { name: nameArg, from: fromFlag }).
       description: "Branch from a specific branch",
     },
   ]),
-  Command.withHandler(({ name, from }) =>
+  Command.withHandler(({ name, from, json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
@@ -67,7 +72,14 @@ export const create = Command.make("create", { name: nameArg, from: fromFlag }).
 
       yield* stacks.addBranch(stackName, name, baseBranch === trunk ? undefined : baseBranch);
 
-      yield* Console.error(`Created branch ${name} on top of ${baseBranch}`);
+      if (json) {
+        // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+        yield* Console.log(
+          JSON.stringify({ branch: name, stack: stackName, base: baseBranch }, null, 2),
+        );
+      } else {
+        yield* Console.error(`Created branch ${name} on top of ${baseBranch}`);
+      }
     }),
   ),
 );

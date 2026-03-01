@@ -12,18 +12,20 @@ const forceFlag = Flag.boolean("force").pipe(
 const keepRemoteFlag = Flag.boolean("keep-remote").pipe(
   Flag.withDescription("Don't delete the remote branch"),
 );
+const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
 
 export const deleteCmd = Command.make("delete", {
   name: nameArg,
   force: forceFlag,
   keepRemote: keepRemoteFlag,
+  json: jsonFlag,
 }).pipe(
   Command.withDescription("Remove branch from stack and delete git branch"),
   Command.withExamples([
     { command: "stacked delete feat-old", description: "Delete a leaf branch" },
     { command: "stacked delete feat-mid --force", description: "Force delete a mid-stack branch" },
   ]),
-  Command.withHandler(({ name, force, keepRemote }) =>
+  Command.withHandler(({ name, force, keepRemote, json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
@@ -69,11 +71,16 @@ export const deleteCmd = Command.make("delete", {
         yield* git.deleteRemoteBranch(name).pipe(Effect.catchTag("GitError", () => Effect.void));
       }
 
-      yield* Console.error(`Deleted ${name}`);
-      if (hadChildren) {
-        yield* Console.error(
-          "Warning: branch had children — commits unique to this branch may be lost if children don't include them. Run 'stacked sync' to rebase them onto the new parent.",
-        );
+      if (json) {
+        // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+        yield* Console.log(JSON.stringify({ deleted: name, hadChildren }, null, 2));
+      } else {
+        yield* Console.error(`Deleted ${name}`);
+        if (hadChildren) {
+          yield* Console.error(
+            "Warning: branch had children — commits unique to this branch may be lost if children don't include them. Run 'stacked sync' to rebase them onto the new parent.",
+          );
+        }
       }
     }),
   ),

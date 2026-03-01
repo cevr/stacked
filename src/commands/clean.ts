@@ -9,14 +9,15 @@ import { success, warn, dim } from "../ui.js";
 const dryRunFlag = Flag.boolean("dry-run").pipe(
   Flag.withDescription("Show what would be removed without making changes"),
 );
+const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
 
-export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
+export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag }).pipe(
   Command.withDescription("Remove merged branches from stacks (bottom-up)"),
   Command.withExamples([
     { command: "stacked clean", description: "Remove merged branches" },
     { command: "stacked clean --dry-run", description: "Preview what would be removed" },
   ]),
-  Command.withHandler(({ dryRun }) =>
+  Command.withHandler(({ dryRun, json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const gh = yield* GitHubService;
@@ -116,6 +117,14 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
           `Cleaned ${toRemove.length} merged branch${toRemove.length === 1 ? "" : "es"}`,
         );
         yield* Console.error(dim("Run 'stacked sync' to rebase remaining branches onto trunk."));
+      }
+
+      if (json) {
+        const removed = toRemove.map((x) => x.branch);
+        const skipped = skippedMerged.map((x) => x.branch);
+        // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+        yield* Console.log(JSON.stringify({ removed, skipped }, null, 2));
+        return;
       }
 
       if (skippedMerged.length > 0) {
