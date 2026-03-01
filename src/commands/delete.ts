@@ -3,6 +3,7 @@ import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { StackError } from "../errors/index.js";
+import { confirm } from "../ui.js";
 
 const nameArg = Argument.string("name");
 const forceFlag = Flag.boolean("force").pipe(
@@ -55,6 +56,14 @@ export const deleteCmd = Command.make("delete", {
         return yield* new StackError({
           message: `Branch "${name}" has children. Use --force to delete anyway.`,
         });
+      }
+
+      const confirmed = yield* confirm(
+        `Delete branch "${name}"${keepRemote ? "" : " (local + remote)"}?`,
+      );
+      if (!confirmed) {
+        yield* Console.error("Aborted");
+        return;
       }
 
       if (currentBranch === name) {

@@ -4,7 +4,7 @@ import { GitService } from "../services/Git.js";
 import { GitHubService } from "../services/GitHub.js";
 import { StackService } from "../services/Stack.js";
 import { StackError } from "../errors/index.js";
-import { success, warn, dim } from "../ui.js";
+import { success, warn, dim, confirm } from "../ui.js";
 
 const dryRunFlag = Flag.boolean("dry-run").pipe(
   Flag.withDescription("Show what would be removed without making changes"),
@@ -83,6 +83,19 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
           }
         }
         return;
+      }
+
+      if (!dryRun) {
+        for (const { branch } of toRemove) {
+          yield* Console.error(dim(`  ${branch}`));
+        }
+        const confirmed = yield* confirm(
+          `Remove ${toRemove.length} merged branch${toRemove.length === 1 ? "" : "es"}?`,
+        );
+        if (!confirmed) {
+          yield* Console.error("Aborted");
+          return;
+        }
       }
 
       const removed: string[] = [];

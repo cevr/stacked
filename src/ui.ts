@@ -1,3 +1,4 @@
+import { createInterface } from "node:readline";
 import pc from "picocolors";
 import { Effect, ServiceMap } from "effect";
 
@@ -38,11 +39,39 @@ const getStdoutColors = () => {
 export interface OutputConfig {
   readonly verbose: boolean;
   readonly quiet: boolean;
+  readonly yes: boolean;
 }
 
 export const OutputConfig = ServiceMap.Reference("@cvr/stacked/OutputConfig", {
-  defaultValue: (): OutputConfig => ({ verbose: false, quiet: false }),
+  defaultValue: (): OutputConfig => ({ verbose: false, quiet: false, yes: false }),
 });
+
+// ============================================================================
+// Interactive Prompts
+// ============================================================================
+
+const stdinIsTTY = process.stdin.isTTY === true;
+
+export const confirm = (message: string) =>
+  Effect.gen(function* () {
+    const config = yield* OutputConfig;
+    if (config.yes || !stdinIsTTY) return true;
+
+    process.stderr.write(`${message} [y/N] `);
+    const answer = yield* Effect.tryPromise({
+      try: () => {
+        const rl = createInterface({ input: process.stdin, output: process.stderr });
+        return new Promise<string>((resolve) => {
+          rl.question("", (ans) => {
+            rl.close();
+            resolve(ans);
+          });
+        });
+      },
+      catch: () => "n" as const,
+    });
+    return answer.trim().toLowerCase() === "y";
+  });
 
 // ============================================================================
 // Styled Output (all write to stderr)

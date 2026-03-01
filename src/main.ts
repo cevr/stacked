@@ -14,13 +14,14 @@ const version = typeof __VERSION__ !== "undefined" ? __VERSION__ : "dev";
 // Global Flags (parsed before CLI framework, stripped from argv)
 // ============================================================================
 
-const globalFlags = new Set(["--verbose", "--quiet", "-q", "--no-color"]);
+const globalFlags = new Set(["--verbose", "--quiet", "-q", "--no-color", "--yes", "-y"]);
 const flagArgs = new Set(process.argv.filter((a) => globalFlags.has(a)));
 process.argv = process.argv.filter((a) => !globalFlags.has(a));
 
 const isVerbose = flagArgs.has("--verbose");
 const isQuiet = flagArgs.has("--quiet") || flagArgs.has("-q");
 const isNoColor = flagArgs.has("--no-color");
+const isYes = flagArgs.has("--yes") || flagArgs.has("-y");
 
 if (isNoColor) process.env["NO_COLOR"] = "1";
 
@@ -56,7 +57,7 @@ const handleKnownError = (message: string) =>
 // @effect-diagnostics-next-line effect/strictEffectProvide:off
 BunRuntime.runMain(
   cli.pipe(
-    Effect.provideService(OutputConfig, { verbose: isVerbose, quiet: isQuiet }),
+    Effect.provideService(OutputConfig, { verbose: isVerbose, quiet: isQuiet, yes: isYes }),
     Effect.provide(AppLayer),
     Effect.catchTags({
       GitError: (e) => handleKnownError(e.message),
