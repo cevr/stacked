@@ -46,13 +46,11 @@ export const adopt = Command.make("adopt", {
         return yield* new StackError({ message: `Branch "${branch}" does not exist` });
       }
 
-      const data = yield* stacks.load();
-      for (const [sName, stack] of Object.entries(data.stacks)) {
-        if (stack.branches.includes(branch)) {
-          return yield* new StackError({
-            message: `Branch "${branch}" is already tracked in stack "${sName}"`,
-          });
-        }
+      const alreadyTracked = yield* stacks.findBranchStack(branch);
+      if (alreadyTracked !== null) {
+        return yield* new StackError({
+          message: `Branch "${branch}" is already tracked in stack "${alreadyTracked.name}"`,
+        });
       }
 
       const result = yield* stacks.currentStack();

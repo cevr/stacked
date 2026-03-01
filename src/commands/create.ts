@@ -57,15 +57,8 @@ export const create = Command.make("create", {
         return yield* new StackError({ message: `Branch "${name}" already exists` });
       }
 
-      const data = yield* stacks.load();
-      let stackName: string | null = null;
-
-      for (const [sName, stack] of Object.entries(data.stacks)) {
-        if (stack.branches.includes(baseBranch)) {
-          stackName = sName;
-          break;
-        }
-      }
+      const existing = yield* stacks.findBranchStack(baseBranch);
+      let stackName = existing?.name ?? null;
 
       yield* git.createBranch(name, baseBranch);
 

@@ -35,6 +35,9 @@ export class StackService extends ServiceMap.Service<
     ) => Effect.Effect<void, StackError>;
     readonly removeBranch: (stackName: string, branch: string) => Effect.Effect<void, StackError>;
     readonly createStack: (name: string, branches: string[]) => Effect.Effect<void, StackError>;
+    readonly findBranchStack: (
+      branch: string,
+    ) => Effect.Effect<{ name: string; stack: Stack } | null, StackError>;
     readonly getTrunk: () => Effect.Effect<string, StackError>;
     readonly setTrunk: (name: string) => Effect.Effect<void, StackError>;
   }
@@ -131,6 +134,9 @@ export class StackService extends ServiceMap.Service<
       return {
         load: () => load(),
         save: (data) => save(data),
+
+        findBranchStack: (branch: string) =>
+          load().pipe(Effect.map((data) => findBranchStack(data, branch))),
 
         currentStack: Effect.fn("StackService.currentStack")(function* () {
           const branch = yield* git.currentBranch();
@@ -239,6 +245,9 @@ export class StackService extends ServiceMap.Service<
         return {
           load: () => Ref.get(ref),
           save: (d) => Ref.set(ref, d),
+
+          findBranchStack: (branch: string) =>
+            Ref.get(ref).pipe(Effect.map((d) => findBranchStack(d, branch))),
 
           currentStack: Effect.fn("test.currentStack")(function* () {
             const d = yield* Ref.get(ref);

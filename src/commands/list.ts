@@ -39,12 +39,10 @@ export const list = Command.make("list", { stackName: stackNameArg, json: jsonFl
         targetStackName = stackName.value;
         targetStack = s;
       } else {
-        for (const [name, stack] of Object.entries(data.stacks)) {
-          if (stack.branches.includes(currentBranch)) {
-            targetStackName = name;
-            targetStack = stack;
-            break;
-          }
+        const found = yield* stacks.findBranchStack(currentBranch);
+        if (found !== null) {
+          targetStackName = found.name;
+          targetStack = found.stack;
         }
       }
 

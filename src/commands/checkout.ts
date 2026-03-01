@@ -15,17 +15,10 @@ export const checkout = Command.make("checkout", { name: nameArg }).pipe(
       const git = yield* GitService;
       const stacks = yield* StackService;
 
-      const data = yield* stacks.load();
-      let inStack = false;
-      for (const stack of Object.values(data.stacks)) {
-        if (stack.branches.includes(name)) {
-          inStack = true;
-          break;
-        }
-      }
+      const result = yield* stacks.findBranchStack(name);
 
       yield* git.checkout(name);
-      if (inStack) {
+      if (result !== null) {
         yield* Console.error(`Switched to ${name}`);
       } else {
         yield* Console.error(`Switched to ${name} (not in a stack)`);

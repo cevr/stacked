@@ -32,24 +32,13 @@ export const deleteCmd = Command.make("delete", {
       const stacks = yield* StackService;
 
       const currentBranch = yield* git.currentBranch();
-      const data = yield* stacks.load();
+      const trunk = yield* stacks.getTrunk();
 
-      let stackName: string | null = null;
-      for (const [sName, stack] of Object.entries(data.stacks)) {
-        if (stack.branches.includes(name)) {
-          stackName = sName;
-          break;
-        }
-      }
-
-      if (stackName === null) {
+      const result = yield* stacks.findBranchStack(name);
+      if (result === null) {
         return yield* new StackError({ message: `Branch "${name}" not found in any stack` });
       }
-
-      const stack = data.stacks[stackName];
-      if (stack === undefined) {
-        return yield* new StackError({ message: `Stack "${stackName}" not found` });
-      }
+      const { name: stackName, stack } = result;
       const idx = stack.branches.indexOf(name);
 
       if (idx < stack.branches.length - 1 && !force) {
@@ -74,7 +63,7 @@ export const deleteCmd = Command.make("delete", {
               "Working tree has uncommitted changes. Commit or stash before deleting the current branch.",
           });
         }
-        const parent = idx === 0 ? data.trunk : (stack.branches[idx - 1] ?? data.trunk);
+        const parent = idx === 0 ? trunk : (stack.branches[idx - 1] ?? trunk);
         yield* git.checkout(parent);
       }
 

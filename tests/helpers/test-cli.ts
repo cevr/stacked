@@ -86,16 +86,13 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
           recorder.record({ service: "Git", method: "push", args: { branch, ...opts } }),
         log: (_branch: string, _opts?: { limit?: number; oneline?: boolean }) =>
           Effect.succeed("abc123 some commit"),
-        mergeBase: (_a: string, _b: string) => Effect.succeed("abc123"),
         isClean: () => Effect.succeed(options.isClean ?? true),
         revParse: (ref: string) =>
           recorder
             .record({ service: "Git", method: "revParse", args: { ref } })
             .pipe(Effect.as(".git")),
-        diff: () => Effect.succeed(""),
         isAncestor: (ancestor: string, descendant: string) =>
           Effect.succeed(options.isAncestor?.(ancestor, descendant) ?? true),
-        remote: () => Effect.succeed("origin"),
         fetch: () => recorder.record({ service: "Git", method: "fetch" }),
         deleteRemoteBranch: (branch: string) =>
           recorder.record({ service: "Git", method: "deleteRemoteBranch", args: { branch } }),

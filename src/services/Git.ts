@@ -22,16 +22,9 @@ export class GitService extends ServiceMap.Service<
       branch: string,
       options?: { limit?: number; oneline?: boolean },
     ) => Effect.Effect<string, GitError>;
-    readonly mergeBase: (a: string, b: string) => Effect.Effect<string, GitError>;
     readonly isClean: () => Effect.Effect<boolean, GitError>;
     readonly revParse: (ref: string) => Effect.Effect<string, GitError>;
-    readonly diff: (
-      a: string,
-      b: string,
-      options?: { stat?: boolean },
-    ) => Effect.Effect<string, GitError>;
     readonly isAncestor: (ancestor: string, descendant: string) => Effect.Effect<boolean, GitError>;
-    readonly remote: () => Effect.Effect<string, GitError>;
     readonly fetch: (remote?: string) => Effect.Effect<void, GitError>;
     readonly deleteRemoteBranch: (branch: string) => Effect.Effect<void, GitError>;
   }
@@ -145,25 +138,15 @@ export class GitService extends ServiceMap.Service<
         return run(args);
       },
 
-      mergeBase: (a, b) => run(["merge-base", a, b]),
-
       isClean: () => run(["status", "--porcelain"]).pipe(Effect.map((r) => r === "")),
 
       revParse: (ref) => run(["rev-parse", ref]),
-
-      diff: (a, b, options) => {
-        const args = ["diff", a, b];
-        if (options?.stat === true) args.push("--stat");
-        return run(args);
-      },
 
       isAncestor: (ancestor, descendant) =>
         run(["merge-base", "--is-ancestor", ancestor, descendant]).pipe(
           Effect.as(true),
           Effect.catchTag("GitError", () => Effect.succeed(false)),
         ),
-
-      remote: () => run(["remote"]),
 
       fetch: (remote) => run(["fetch", remote ?? "origin"]).pipe(Effect.asVoid),
 
@@ -185,12 +168,9 @@ export class GitService extends ServiceMap.Service<
       rebaseAbort: () => Effect.void,
       push: () => Effect.void,
       log: () => Effect.succeed(""),
-      mergeBase: () => Effect.succeed("abc123"),
       isClean: () => Effect.succeed(true),
       revParse: () => Effect.succeed("abc123"),
-      diff: () => Effect.succeed(""),
       isAncestor: () => Effect.succeed(true),
-      remote: () => Effect.succeed("origin"),
       fetch: () => Effect.void,
       deleteRemoteBranch: () => Effect.void,
       ...impl,
