@@ -33,41 +33,17 @@ export class GitService extends ServiceMap.Service<
 >()("@cvr/stacked/services/Git/GitService") {
   static layer: Layer.Layer<GitService> = Layer.sync(GitService, () => {
     const run = Effect.fn("git.run")(function* (args: readonly string[]) {
-      const proc = Bun.spawn(["git", ...args], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
+      const proc = yield* Effect.sync(() =>
+        Bun.spawn(["git", ...args], {
+          stdout: "pipe",
+          stderr: "pipe",
+        }),
+      );
 
-      const result = yield* Effect.gen(function* () {
-        const exitCode = yield* Effect.tryPromise({
-          try: () => proc.exited,
-          catch: (e) =>
-            new GitError({ message: `Process failed: ${e}`, command: `git ${args.join(" ")}` }),
-        });
-        const stdout = yield* Effect.tryPromise({
-          try: () => new Response(proc.stdout).text(),
-          catch: (e) =>
-            new GitError({
-              message: `Failed to read stdout: ${e}`,
-              command: `git ${args.join(" ")}`,
-            }),
-        });
-        const stderr = yield* Effect.tryPromise({
-          try: () => new Response(proc.stderr).text(),
-          catch: (e) =>
-            new GitError({
-              message: `Failed to read stderr: ${e}`,
-              command: `git ${args.join(" ")}`,
-            }),
-        });
-
-        if (exitCode !== 0) {
-          return yield* new GitError({
-            message: stderr.trim() || `git ${args[0]} failed with exit code ${exitCode}`,
-            command: `git ${args.join(" ")}`,
-          });
-        }
-        return stdout.trim();
+      const exitCode = yield* Effect.tryPromise({
+        try: () => proc.exited,
+        catch: (e) =>
+          new GitError({ message: `Process failed: ${e}`, command: `git ${args.join(" ")}` }),
       }).pipe(
         Effect.onInterrupt(() =>
           Effect.sync(() => {
@@ -75,8 +51,30 @@ export class GitService extends ServiceMap.Service<
           }),
         ),
       );
+      const stdout = yield* Effect.tryPromise({
+        try: () => new Response(proc.stdout).text(),
+        catch: (e) =>
+          new GitError({
+            message: `Failed to read stdout: ${e}`,
+            command: `git ${args.join(" ")}`,
+          }),
+      });
+      const stderr = yield* Effect.tryPromise({
+        try: () => new Response(proc.stderr).text(),
+        catch: (e) =>
+          new GitError({
+            message: `Failed to read stderr: ${e}`,
+            command: `git ${args.join(" ")}`,
+          }),
+      });
 
-      return result;
+      if (exitCode !== 0) {
+        return yield* new GitError({
+          message: stderr.trim() || `git ${args[0]} failed with exit code ${exitCode}`,
+          command: `git ${args.join(" ")}`,
+        });
+      }
+      return stdout.trim();
     });
 
     return {

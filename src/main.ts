@@ -39,24 +39,31 @@ const ServiceLayer = StackService.layer.pipe(
 
 const AppLayer = Layer.mergeAll(ServiceLayer, BunServices.layer);
 
+const handleKnownError = (message: string) =>
+  Console.error(message).pipe(
+    Effect.andThen(
+      Effect.sync(() => {
+        process.exitCode = 1;
+      }),
+    ),
+  );
+
 // @effect-diagnostics-next-line effect/strictEffectProvide:off
 BunRuntime.runMain(
   cli.pipe(
     Effect.provideService(OutputConfig, { verbose: isVerbose, quiet: isQuiet }),
     Effect.provide(AppLayer),
+    Effect.catchTags({
+      GitError: (e) => handleKnownError(e.message),
+      StackError: (e) => handleKnownError(e.message),
+      GitHubError: (e) => handleKnownError(e.message),
+    }),
     Effect.catch((e) => {
-      const tag = e !== null && typeof e === "object" && "_tag" in e ? String(e._tag) : null;
-      const isKnown = tag === "GitError" || tag === "StackError" || tag === "GitHubError";
-      const msg = e !== null && typeof e === "object" && "message" in e ? String(e.message) : null;
-      const message =
-        isKnown && msg !== null ? msg : `Unexpected error: ${JSON.stringify(e, null, 2)}`;
-      return Console.error(message).pipe(
-        Effect.andThen(
-          Effect.sync(() => {
-            process.exitCode = 1;
-          }),
-        ),
-      );
+      const msg =
+        e !== null && typeof e === "object" && "message" in e
+          ? String(e.message)
+          : JSON.stringify(e, null, 2);
+      return handleKnownError(`Unexpected error: ${msg}`);
     }),
   ),
 );
