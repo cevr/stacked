@@ -11,6 +11,7 @@ export class GitService extends ServiceMap.Service<
     readonly deleteBranch: (name: string, force?: boolean) => Effect.Effect<void, GitError>;
     readonly checkout: (name: string) => Effect.Effect<void, GitError>;
     readonly rebase: (onto: string) => Effect.Effect<void, GitError>;
+    readonly rebaseAbort: () => Effect.Effect<void, GitError>;
     readonly push: (branch: string, options?: { force?: boolean }) => Effect.Effect<void, GitError>;
     readonly log: (
       branch: string,
@@ -68,7 +69,17 @@ export class GitService extends ServiceMap.Service<
     });
 
     return {
-      currentBranch: () => run(["rev-parse", "--abbrev-ref", "HEAD"]),
+      currentBranch: () =>
+        run(["rev-parse", "--abbrev-ref", "HEAD"]).pipe(
+          Effect.filterOrFail(
+            (branch) => branch !== "HEAD",
+            () =>
+              new GitError({
+                message: "HEAD is detached — checkout a branch first",
+                command: "git rev-parse --abbrev-ref HEAD",
+              }),
+          ),
+        ),
 
       listBranches: () =>
         run(["branch", "--format=%(refname:short)"]).pipe(
@@ -97,6 +108,8 @@ export class GitService extends ServiceMap.Service<
       checkout: (name) => run(["checkout", name]).pipe(Effect.asVoid),
 
       rebase: (onto) => run(["rebase", onto]).pipe(Effect.asVoid),
+
+      rebaseAbort: () => run(["rebase", "--abort"]).pipe(Effect.asVoid),
 
       push: (branch, options) => {
         const args = ["push", "-u", "origin", branch];
@@ -147,6 +160,7 @@ export class GitService extends ServiceMap.Service<
       deleteBranch: () => Effect.void,
       checkout: () => Effect.void,
       rebase: () => Effect.void,
+      rebaseAbort: () => Effect.void,
       push: () => Effect.void,
       log: () => Effect.succeed(""),
       mergeBase: () => Effect.succeed("abc123"),

@@ -75,6 +75,7 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
           recorder.record({ service: "Git", method: "checkout", args: { name } }),
         rebase: (onto: string) =>
           recorder.record({ service: "Git", method: "rebase", args: { onto } }),
+        rebaseAbort: () => recorder.record({ service: "Git", method: "rebaseAbort" }),
         push: (branch: string, opts?: { force?: boolean }) =>
           recorder.record({ service: "Git", method: "push", args: { branch, ...opts } }),
         log: (_branch: string, _opts?: { limit?: number; oneline?: boolean }) =>

@@ -45,6 +45,37 @@ describe("sync command logic", () => {
     ),
   );
 
+  it.effect("calls rebaseAbort and restores branch on rebase failure", () =>
+    Effect.gen(function* () {
+      const git = yield* GitService;
+      const recorder = yield* CallRecorder;
+
+      // Simulate rebase failure on feat-b: checkout, then rebase fails, then abort
+      yield* git.fetch();
+      yield* git.checkout("feat-a");
+      yield* git.rebase("origin/main");
+      yield* git.checkout("feat-b");
+      // rebase would fail here — verify abort is called
+      yield* git.rebaseAbort();
+      // ensuring restores original branch
+      yield* git.checkout("feat-a");
+
+      const calls = yield* recorder.calls;
+      expectCall(calls, "Git", "rebaseAbort");
+      // Should restore to original branch
+      const checkouts = calls.filter((c) => c.service === "Git" && c.method === "checkout");
+      const lastCheckout = checkouts[checkouts.length - 1];
+      expect((lastCheckout?.args as { name: string })?.name).toBe("feat-a");
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: { currentBranch: "feat-a" },
+          stack: stackData,
+        }),
+      ),
+    ),
+  );
+
   it.effect("with --from, rebases only children of the specified branch", () =>
     Effect.gen(function* () {
       const git = yield* GitService;

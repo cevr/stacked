@@ -61,7 +61,20 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
           const base = i === 0 ? `origin/${trunk}` : (branches[i - 1] ?? `origin/${trunk}`);
           yield* Console.log(`Rebasing ${branch} onto ${base}...`);
           yield* git.checkout(branch);
-          yield* git.rebase(base);
+          yield* git.rebase(base).pipe(
+            Effect.catchTag("GitError", (e) =>
+              git.rebaseAbort().pipe(
+                Effect.ignore,
+                Effect.andThen(
+                  Effect.fail(
+                    new StackError({
+                      message: `Rebase failed on ${branch}: ${e.message}\nResolve conflicts manually or re-run 'stacked sync --from ${branches[i - 1] ?? trunk}'`,
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          );
         }
       }).pipe(Effect.ensuring(git.checkout(currentBranch).pipe(Effect.ignore)));
 
