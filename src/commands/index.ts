@@ -20,6 +20,12 @@ import { status } from "./status.js";
 
 const root = Command.make("stacked").pipe(
   Command.withDescription("Branch-based stacked PR manager"),
+  Command.withExamples([
+    { command: "stacked create feat-auth", description: "Create a new branch in the stack" },
+    { command: "stacked list", description: "Show branches in the current stack" },
+    { command: "stacked sync", description: "Rebase all branches in order" },
+    { command: "stacked submit", description: "Push and create/update PRs" },
+  ]),
 );
 
 export const command = root.pipe(

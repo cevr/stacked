@@ -5,7 +5,7 @@ import { StackService } from "../services/Stack.js";
 import { StackError } from "../errors/index.js";
 import { confirm } from "../ui.js";
 
-const nameArg = Argument.string("name");
+const nameArg = Argument.string("name").pipe(Argument.withDescription("Branch name to delete"));
 const forceFlag = Flag.boolean("force").pipe(
   Flag.withAlias("f"),
   Flag.withDescription("Delete even if branch has children in the stack"),

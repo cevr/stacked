@@ -6,7 +6,10 @@ import { StackService } from "../services/Stack.js";
 import { StackError } from "../errors/index.js";
 import { stdout } from "../ui.js";
 
-const stackNameArg = Argument.string("stack").pipe(Argument.optional);
+const stackNameArg = Argument.string("stack").pipe(
+  Argument.withDescription("Stack name (defaults to current)"),
+  Argument.optional,
+);
 const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
 
 export const list = Command.make("list", { stackName: stackNameArg, json: jsonFlag }).pipe(

@@ -3,7 +3,7 @@ import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 
-const nameArg = Argument.string("name");
+const nameArg = Argument.string("name").pipe(Argument.withDescription("Branch name to check out"));
 
 export const checkout = Command.make("checkout", { name: nameArg }).pipe(
   Command.withDescription("Switch to a branch (falls through to git if not in a stack)"),
