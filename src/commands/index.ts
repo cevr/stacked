@@ -18,6 +18,7 @@ import { detect } from "./detect.js";
 import { init } from "./init.js";
 import { status } from "./status.js";
 import { doctor } from "./doctor.js";
+import { rename } from "./rename.js";
 
 const root = Command.make("stacked").pipe(
   Command.withDescription(
@@ -52,5 +53,6 @@ export const command = root.pipe(
     init,
     status,
     doctor,
+    rename,
   ]),
 );
