@@ -69,26 +69,40 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
         for (let i = startIdx; i < branches.length; i++) {
           const branch = branches[i];
           if (branch === undefined) continue;
-          const base = i === 0 ? `origin/${trunk}` : (branches[i - 1] ?? `origin/${trunk}`);
+          const newBase = i === 0 ? `origin/${trunk}` : (branches[i - 1] ?? `origin/${trunk}`);
+
+          // Compute old base (merge-base of this branch and its parent) before rebasing
+          const oldBase = yield* git
+            .mergeBase(branch, newBase)
+            .pipe(Effect.catchTag("GitError", () => Effect.succeed(newBase)));
+
           yield* git.checkout(branch);
-          yield* withSpinner(`Rebasing ${branch} onto ${base}`, git.rebase(base)).pipe(
+          yield* withSpinner(
+            `Rebasing ${branch} onto ${newBase}`,
+            git.rebaseOnto(branch, newBase, oldBase),
+          ).pipe(
             Effect.catchTag("GitError", (e) => {
               const hint =
                 i === 0 ? "stacked sync" : `stacked sync --from ${branches[i - 1] ?? trunk}`;
-              return git.rebaseAbort().pipe(
-                Effect.ignore,
-                Effect.andThen(
-                  Effect.fail(
-                    new StackError({
-                      message: `Rebase failed on ${branch}: ${e.message}\nResolve conflicts manually or re-run '${hint}'`,
-                    }),
-                  ),
-                ),
+              return Effect.fail(
+                new StackError({
+                  message: `Rebase conflict on ${branch}: ${e.message}\n\nResolve conflicts, then run:\n  git rebase --continue\n  ${hint}`,
+                }),
               );
             }),
           );
         }
-      }).pipe(Effect.ensuring(git.checkout(currentBranch).pipe(Effect.ignore)));
+      }).pipe(
+        Effect.ensuring(
+          git
+            .isRebaseInProgress()
+            .pipe(
+              Effect.andThen((inProgress) =>
+                inProgress ? Effect.void : git.checkout(currentBranch).pipe(Effect.ignore),
+              ),
+            ),
+        ),
+      );
 
       yield* success("Stack synced");
     }),

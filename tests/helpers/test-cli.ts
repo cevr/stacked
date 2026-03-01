@@ -93,6 +93,11 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
             .pipe(Effect.as(".git")),
         isAncestor: (ancestor: string, descendant: string) =>
           Effect.succeed(options.isAncestor?.(ancestor, descendant) ?? true),
+        mergeBase: (a: string, b: string) =>
+          recorder
+            .record({ service: "Git", method: "mergeBase", args: { a, b } })
+            .pipe(Effect.as("abc123")),
+        isRebaseInProgress: () => Effect.succeed(false),
         fetch: () => recorder.record({ service: "Git", method: "fetch" }),
         deleteRemoteBranch: (branch: string) =>
           recorder.record({ service: "Git", method: "deleteRemoteBranch", args: { branch } }),

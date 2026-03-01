@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { Effect, Layer, ServiceMap } from "effect";
 import { GitError } from "../errors/index.js";
 
@@ -25,6 +26,8 @@ export class GitService extends ServiceMap.Service<
     readonly isClean: () => Effect.Effect<boolean, GitError>;
     readonly revParse: (ref: string) => Effect.Effect<string, GitError>;
     readonly isAncestor: (ancestor: string, descendant: string) => Effect.Effect<boolean, GitError>;
+    readonly mergeBase: (a: string, b: string) => Effect.Effect<string, GitError>;
+    readonly isRebaseInProgress: () => Effect.Effect<boolean>;
     readonly fetch: (remote?: string) => Effect.Effect<void, GitError>;
     readonly deleteRemoteBranch: (branch: string) => Effect.Effect<void, GitError>;
   }
@@ -145,6 +148,17 @@ export class GitService extends ServiceMap.Service<
           Effect.catchTag("GitError", () => Effect.succeed(false)),
         ),
 
+      mergeBase: (a, b) => run(["merge-base", a, b]),
+
+      isRebaseInProgress: () =>
+        run(["rev-parse", "--git-dir"]).pipe(
+          Effect.map(
+            (gitDir) =>
+              existsSync(`${gitDir}/rebase-merge`) || existsSync(`${gitDir}/rebase-apply`),
+          ),
+          Effect.catch(() => Effect.succeed(false)),
+        ),
+
       fetch: (remote) => run(["fetch", remote ?? "origin"]).pipe(Effect.asVoid),
 
       deleteRemoteBranch: (branch) =>
@@ -168,6 +182,8 @@ export class GitService extends ServiceMap.Service<
       isClean: () => Effect.succeed(true),
       revParse: () => Effect.succeed("abc123"),
       isAncestor: () => Effect.succeed(true),
+      mergeBase: () => Effect.succeed("abc123"),
+      isRebaseInProgress: () => Effect.succeed(false),
       fetch: () => Effect.void,
       deleteRemoteBranch: () => Effect.void,
       ...impl,
