@@ -80,36 +80,4 @@ describe("StackService", () => {
       expect(data.stacks["solo"]).toBeUndefined();
     }).pipe(Effect.provide(StackService.layerTest())),
   );
-
-  it.effect("parentOf returns trunk for first branch", () =>
-    Effect.gen(function* () {
-      const stacks = yield* StackService;
-      const parent = yield* stacks.parentOf("feat-a");
-      expect(parent).toBe("main");
-    }).pipe(Effect.provide(StackService.layerTest(initialData))),
-  );
-
-  it.effect("parentOf returns previous branch for non-first", () =>
-    Effect.gen(function* () {
-      const stacks = yield* StackService;
-      const parent = yield* stacks.parentOf("feat-c");
-      expect(parent).toBe("feat-b");
-    }).pipe(Effect.provide(StackService.layerTest(initialData))),
-  );
-
-  it.effect("childrenOf returns next branch", () =>
-    Effect.gen(function* () {
-      const stacks = yield* StackService;
-      const children = yield* stacks.childrenOf("feat-a");
-      expect(children).toEqual(["feat-b"]);
-    }).pipe(Effect.provide(StackService.layerTest(initialData))),
-  );
-
-  it.effect("childrenOf returns empty for last branch", () =>
-    Effect.gen(function* () {
-      const stacks = yield* StackService;
-      const children = yield* stacks.childrenOf("feat-c");
-      expect(children).toEqual([]);
-    }).pipe(Effect.provide(StackService.layerTest(initialData))),
-  );
 });

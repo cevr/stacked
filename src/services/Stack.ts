@@ -37,8 +37,6 @@ export class StackService extends ServiceMap.Service<
     readonly createStack: (name: string, branches: string[]) => Effect.Effect<void, StackError>;
     readonly getTrunk: () => Effect.Effect<string, StackError>;
     readonly setTrunk: (name: string) => Effect.Effect<void, StackError>;
-    readonly parentOf: (branch: string) => Effect.Effect<string, StackError>;
-    readonly childrenOf: (branch: string) => Effect.Effect<string[], StackError>;
   }
 >()("@cvr/stacked/services/Stack/StackService") {
   static layer: Layer.Layer<StackService, never, GitService> = Layer.effect(
@@ -211,29 +209,6 @@ export class StackService extends ServiceMap.Service<
           const data = yield* load();
           yield* save({ ...data, trunk: name });
         }),
-
-        parentOf: Effect.fn("StackService.parentOf")(function* (branch: string) {
-          const data = yield* load();
-          for (const stack of Object.values(data.stacks)) {
-            const idx = stack.branches.indexOf(branch);
-            if (idx === 0) return data.trunk;
-            if (idx > 0) return stack.branches[idx - 1] ?? data.trunk;
-          }
-          return yield* new StackError({ message: `Branch "${branch}" not found in any stack` });
-        }),
-
-        childrenOf: Effect.fn("StackService.childrenOf")(function* (branch: string) {
-          const data = yield* load();
-          const children: string[] = [];
-          for (const stack of Object.values(data.stacks)) {
-            const idx = stack.branches.indexOf(branch);
-            const child = stack.branches[idx + 1];
-            if (idx !== -1 && child !== undefined) {
-              children.push(child);
-            }
-          }
-          return children;
-        }),
       };
     }),
   );
@@ -308,29 +283,6 @@ export class StackService extends ServiceMap.Service<
 
           getTrunk: () => Ref.get(ref).pipe(Effect.map((d) => d.trunk)),
           setTrunk: (name: string) => Ref.update(ref, (d) => ({ ...d, trunk: name })),
-
-          parentOf: Effect.fn("test.parentOf")(function* (branch: string) {
-            const d = yield* Ref.get(ref);
-            for (const stack of Object.values(d.stacks)) {
-              const idx = stack.branches.indexOf(branch);
-              if (idx === 0) return d.trunk;
-              if (idx > 0) return stack.branches[idx - 1] ?? d.trunk;
-            }
-            return yield* new StackError({ message: `Branch "${branch}" not found in any stack` });
-          }),
-
-          childrenOf: Effect.fn("test.childrenOf")(function* (branch: string) {
-            const d = yield* Ref.get(ref);
-            const children: string[] = [];
-            for (const stack of Object.values(d.stacks)) {
-              const idx = stack.branches.indexOf(branch);
-              const child = stack.branches[idx + 1];
-              if (idx !== -1 && child !== undefined) {
-                children.push(child);
-              }
-            }
-            return children;
-          }),
         };
       }),
     );

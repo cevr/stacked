@@ -21,6 +21,7 @@ export const init = Command.make("init").pipe(
       const targetDir = join(skillsDir, "stacked");
       const targetPath = join(targetDir, "SKILL.md");
 
+      yield* Console.error(`Writing skill to ${targetPath}...`);
       yield* Effect.try({
         try: () => {
           mkdirSync(targetDir, { recursive: true });
