@@ -105,17 +105,14 @@ export class GitService extends ServiceMap.Service<
         ),
 
       createBranch: (name, from) => {
-        const args =
-          from !== undefined
-            ? ["checkout", "-b", name, "--", from]
-            : ["checkout", "-b", "--", name];
+        const args = from !== undefined ? ["checkout", "-b", name, from] : ["checkout", "-b", name];
         return run(args).pipe(Effect.asVoid);
       },
 
       deleteBranch: (name, force) =>
         run(["branch", force === true ? "-D" : "-d", "--", name]).pipe(Effect.asVoid),
 
-      checkout: (name) => run(["checkout", "--", name]).pipe(Effect.asVoid),
+      checkout: (name) => run(["checkout", name]).pipe(Effect.asVoid),
 
       rebase: (onto) => run(["rebase", onto]).pipe(Effect.asVoid),
 
