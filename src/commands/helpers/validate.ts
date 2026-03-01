@@ -4,6 +4,12 @@ import { ErrorCode, StackError } from "../../errors/index.js";
 const BRANCH_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._\-/]*$/;
 
 export const validateBranchName = Effect.fn("validateBranchName")(function* (name: string) {
+  if (name === "") {
+    return yield* new StackError({
+      code: ErrorCode.INVALID_BRANCH_NAME,
+      message: "Branch name cannot be empty",
+    });
+  }
   if (name.startsWith("-")) {
     return yield* new StackError({
       code: ErrorCode.INVALID_BRANCH_NAME,
@@ -26,6 +32,24 @@ export const validateBranchName = Effect.fn("validateBranchName")(function* (nam
     return yield* new StackError({
       code: ErrorCode.INVALID_BRANCH_NAME,
       message: `Invalid branch name "${name}": cannot end with ".lock"`,
+    });
+  }
+  if (name.endsWith(".")) {
+    return yield* new StackError({
+      code: ErrorCode.INVALID_BRANCH_NAME,
+      message: `Invalid branch name "${name}": cannot end with "."`,
+    });
+  }
+  if (name.endsWith("/")) {
+    return yield* new StackError({
+      code: ErrorCode.INVALID_BRANCH_NAME,
+      message: `Invalid branch name "${name}": cannot end with "/"`,
+    });
+  }
+  if (name === "@") {
+    return yield* new StackError({
+      code: ErrorCode.INVALID_BRANCH_NAME,
+      message: `Invalid branch name "${name}": "@" alone is not a valid branch name`,
     });
   }
   if (!BRANCH_NAME_PATTERN.test(name)) {
