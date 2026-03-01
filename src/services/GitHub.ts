@@ -39,35 +39,46 @@ export class GitHubService extends ServiceMap.Service<
         stdout: "pipe",
         stderr: "pipe",
       });
-      const exitCode = yield* Effect.tryPromise({
-        try: () => proc.exited,
-        catch: (e) =>
-          new GitHubError({ message: `Process failed: ${e}`, command: `gh ${args.join(" ")}` }),
-      });
-      const stdout = yield* Effect.tryPromise({
-        try: () => new Response(proc.stdout).text(),
-        catch: (e) =>
-          new GitHubError({
-            message: `Failed to read stdout: ${e}`,
-            command: `gh ${args.join(" ")}`,
-          }),
-      });
-      const stderr = yield* Effect.tryPromise({
-        try: () => new Response(proc.stderr).text(),
-        catch: (e) =>
-          new GitHubError({
-            message: `Failed to read stderr: ${e}`,
-            command: `gh ${args.join(" ")}`,
-          }),
-      });
 
-      if (exitCode !== 0) {
-        return yield* new GitHubError({
-          message: stderr.trim() || `gh ${args[0]} failed with exit code ${exitCode}`,
-          command: `gh ${args.join(" ")}`,
+      const result = yield* Effect.gen(function* () {
+        const exitCode = yield* Effect.tryPromise({
+          try: () => proc.exited,
+          catch: (e) =>
+            new GitHubError({ message: `Process failed: ${e}`, command: `gh ${args.join(" ")}` }),
         });
-      }
-      return stdout.trim();
+        const stdout = yield* Effect.tryPromise({
+          try: () => new Response(proc.stdout).text(),
+          catch: (e) =>
+            new GitHubError({
+              message: `Failed to read stdout: ${e}`,
+              command: `gh ${args.join(" ")}`,
+            }),
+        });
+        const stderr = yield* Effect.tryPromise({
+          try: () => new Response(proc.stderr).text(),
+          catch: (e) =>
+            new GitHubError({
+              message: `Failed to read stderr: ${e}`,
+              command: `gh ${args.join(" ")}`,
+            }),
+        });
+
+        if (exitCode !== 0) {
+          return yield* new GitHubError({
+            message: stderr.trim() || `gh ${args[0]} failed with exit code ${exitCode}`,
+            command: `gh ${args.join(" ")}`,
+          });
+        }
+        return stdout.trim();
+      }).pipe(
+        Effect.onInterrupt(() =>
+          Effect.sync(() => {
+            proc.kill();
+          }),
+        ),
+      );
+
+      return result;
     });
 
     return {
@@ -121,14 +132,19 @@ export class GitHubService extends ServiceMap.Service<
         };
       }),
 
-      isGhInstalled: () =>
-        Effect.sync(() => {
-          const result = Bun.spawnSync(["gh", "--version"], {
-            stdout: "ignore",
-            stderr: "ignore",
-          });
-          return result.exitCode === 0;
-        }),
+      isGhInstalled: () => {
+        const proc = Bun.spawn(["gh", "--version"], {
+          stdout: "ignore",
+          stderr: "ignore",
+        });
+        return Effect.tryPromise({
+          try: () => proc.exited,
+          catch: () => -1,
+        }).pipe(
+          Effect.map((code) => code === 0),
+          Effect.catch(() => Effect.succeed(false)),
+        );
+      },
     };
   });
 

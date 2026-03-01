@@ -37,35 +37,46 @@ export class GitService extends ServiceMap.Service<
         stdout: "pipe",
         stderr: "pipe",
       });
-      const exitCode = yield* Effect.tryPromise({
-        try: () => proc.exited,
-        catch: (e) =>
-          new GitError({ message: `Process failed: ${e}`, command: `git ${args.join(" ")}` }),
-      });
-      const stdout = yield* Effect.tryPromise({
-        try: () => new Response(proc.stdout).text(),
-        catch: (e) =>
-          new GitError({
-            message: `Failed to read stdout: ${e}`,
-            command: `git ${args.join(" ")}`,
-          }),
-      });
-      const stderr = yield* Effect.tryPromise({
-        try: () => new Response(proc.stderr).text(),
-        catch: (e) =>
-          new GitError({
-            message: `Failed to read stderr: ${e}`,
-            command: `git ${args.join(" ")}`,
-          }),
-      });
 
-      if (exitCode !== 0) {
-        return yield* new GitError({
-          message: stderr.trim() || `git ${args[0]} failed with exit code ${exitCode}`,
-          command: `git ${args.join(" ")}`,
+      const result = yield* Effect.gen(function* () {
+        const exitCode = yield* Effect.tryPromise({
+          try: () => proc.exited,
+          catch: (e) =>
+            new GitError({ message: `Process failed: ${e}`, command: `git ${args.join(" ")}` }),
         });
-      }
-      return stdout.trim();
+        const stdout = yield* Effect.tryPromise({
+          try: () => new Response(proc.stdout).text(),
+          catch: (e) =>
+            new GitError({
+              message: `Failed to read stdout: ${e}`,
+              command: `git ${args.join(" ")}`,
+            }),
+        });
+        const stderr = yield* Effect.tryPromise({
+          try: () => new Response(proc.stderr).text(),
+          catch: (e) =>
+            new GitError({
+              message: `Failed to read stderr: ${e}`,
+              command: `git ${args.join(" ")}`,
+            }),
+        });
+
+        if (exitCode !== 0) {
+          return yield* new GitError({
+            message: stderr.trim() || `git ${args[0]} failed with exit code ${exitCode}`,
+            command: `git ${args.join(" ")}`,
+          });
+        }
+        return stdout.trim();
+      }).pipe(
+        Effect.onInterrupt(() =>
+          Effect.sync(() => {
+            proc.kill();
+          }),
+        ),
+      );
+
+      return result;
     });
 
     return {
