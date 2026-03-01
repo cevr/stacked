@@ -2,9 +2,18 @@ import { Command, Flag } from "effect/unstable/cli";
 import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
+import { StackError } from "../errors/index.js";
 
-const trunkFlag = Flag.string("trunk").pipe(Flag.optional, Flag.withAlias("t"));
-const fromFlag = Flag.string("from").pipe(Flag.optional, Flag.withAlias("f"));
+const trunkFlag = Flag.string("trunk").pipe(
+  Flag.optional,
+  Flag.withAlias("t"),
+  Flag.withDescription("Override trunk branch for this sync"),
+);
+const fromFlag = Flag.string("from").pipe(
+  Flag.optional,
+  Flag.withAlias("f"),
+  Flag.withDescription("Start rebasing after this branch (exclusive)"),
+);
 
 export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).pipe(
   Command.withDescription("Fetch and rebase stack on trunk. Use --from to start from a branch."),
@@ -16,13 +25,19 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
       const trunk = Option.isSome(trunkOpt) ? trunkOpt.value : yield* stacks.getTrunk();
       const currentBranch = yield* git.currentBranch();
 
+      const clean = yield* git.isClean();
+      if (!clean) {
+        return yield* new StackError({
+          message: "Working tree has uncommitted changes. Commit or stash before syncing.",
+        });
+      }
+
       yield* Console.log(`Fetching ${trunk}...`);
       yield* git.fetch();
 
       const result = yield* stacks.currentStack();
       if (result === null) {
-        yield* Console.error("Not on a stacked branch");
-        return;
+        return yield* new StackError({ message: "Not on a stacked branch" });
       }
 
       const { branches } = result.stack;
@@ -32,22 +47,24 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
       if (fromBranch !== undefined) {
         const idx = branches.indexOf(fromBranch);
         if (idx === -1) {
-          yield* Console.error(`Branch "${fromBranch}" not found in stack`);
-          return;
+          return yield* new StackError({
+            message: `Branch "${fromBranch}" not found in stack`,
+          });
         }
         startIdx = idx + 1;
       }
 
-      for (let i = startIdx; i < branches.length; i++) {
-        const branch = branches[i];
-        if (branch === undefined) continue;
-        const base = i === 0 ? `origin/${trunk}` : (branches[i - 1] ?? `origin/${trunk}`);
-        yield* Console.log(`Rebasing ${branch} onto ${base}...`);
-        yield* git.checkout(branch);
-        yield* git.rebase(base);
-      }
+      yield* Effect.gen(function* () {
+        for (let i = startIdx; i < branches.length; i++) {
+          const branch = branches[i];
+          if (branch === undefined) continue;
+          const base = i === 0 ? `origin/${trunk}` : (branches[i - 1] ?? `origin/${trunk}`);
+          yield* Console.log(`Rebasing ${branch} onto ${base}...`);
+          yield* git.checkout(branch);
+          yield* git.rebase(base);
+        }
+      }).pipe(Effect.ensuring(git.checkout(currentBranch).pipe(Effect.ignore)));
 
-      yield* git.checkout(currentBranch);
       yield* Console.log("Stack synced");
     }),
   ),

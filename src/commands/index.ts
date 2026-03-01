@@ -6,6 +6,8 @@ import { stacks } from "./stacks.js";
 import { checkout } from "./checkout.js";
 import { top } from "./top.js";
 import { bottom } from "./bottom.js";
+import { up } from "./up.js";
+import { down } from "./down.js";
 import { sync } from "./sync.js";
 import { deleteCmd } from "./delete.js";
 import { submit } from "./submit.js";
@@ -13,6 +15,7 @@ import { adopt } from "./adopt.js";
 import { log } from "./log.js";
 import { clean } from "./clean.js";
 import { detect } from "./detect.js";
+import { init } from "./init.js";
 
 const root = Command.make("stacked").pipe(
   Command.withDescription("Branch-based stacked PR manager"),
@@ -27,6 +30,8 @@ export const command = root.pipe(
     checkout,
     top,
     bottom,
+    up,
+    down,
     sync,
     deleteCmd,
     submit,
@@ -34,5 +39,6 @@ export const command = root.pipe(
     log,
     clean,
     detect,
+    init,
   ]),
 );

@@ -1,14 +1,16 @@
-import { Argument, Command } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { GitHubService } from "../services/GitHub.js";
 import { StackService } from "../services/Stack.js";
+import { StackError } from "../errors/index.js";
 
 const stackNameArg = Argument.string("stack").pipe(Argument.optional);
+const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
 
-export const list = Command.make("list", { stackName: stackNameArg }).pipe(
+export const list = Command.make("list", { stackName: stackNameArg, json: jsonFlag }).pipe(
   Command.withDescription("Show stack branches (defaults to current stack)"),
-  Command.withHandler(({ stackName }) =>
+  Command.withHandler(({ stackName, json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const gh = yield* GitHubService;
@@ -24,8 +26,7 @@ export const list = Command.make("list", { stackName: stackNameArg }).pipe(
       if (Option.isSome(stackName)) {
         const s = data.stacks[stackName.value];
         if (s === undefined) {
-          yield* Console.error(`Stack "${stackName.value}" not found`);
-          return;
+          return yield* new StackError({ message: `Stack "${stackName.value}" not found` });
         }
         targetStackName = stackName.value;
         targetStack = s;
@@ -40,7 +41,31 @@ export const list = Command.make("list", { stackName: stackNameArg }).pipe(
       }
 
       if (targetStackName === null || targetStack === null) {
-        yield* Console.log("Not on a stacked branch");
+        return yield* new StackError({ message: "Not on a stacked branch" });
+      }
+
+      const prStatuses = yield* Effect.forEach(
+        targetStack.branches as readonly string[],
+        (branch) =>
+          gh.getPR(branch).pipe(
+            Effect.catchTag("GitHubError", () => Effect.succeed(null)),
+            Effect.map((pr) => [branch, pr] as const),
+          ),
+        { concurrency: 5 },
+      );
+      const prMap = new Map(prStatuses);
+
+      if (json) {
+        const branches = [...targetStack.branches].map((branch) => {
+          const pr = prMap.get(branch) ?? null;
+          return {
+            name: branch,
+            current: branch === currentBranch,
+            pr: pr !== null ? { number: pr.number, url: pr.url, state: pr.state } : null,
+          };
+        });
+        // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+        yield* Console.log(JSON.stringify({ stack: targetStackName, trunk, branches }, null, 2));
         return;
       }
 
@@ -57,7 +82,7 @@ export const list = Command.make("list", { stackName: stackNameArg }).pipe(
         const marker = isCurrent ? "* " : "  ";
         const prefix = i === 0 ? "└─" : "├─";
 
-        const pr = yield* gh.getPR(branch).pipe(Effect.catch(() => Effect.succeed(null)));
+        const pr = prMap.get(branch) ?? null;
         const status =
           pr === null
             ? ""

@@ -47,7 +47,7 @@ export class StackService extends ServiceMap.Service<
 
       const stackFilePath = Effect.fn("stackFilePath")(function* () {
         const gitDir = yield* git
-          .revParse("--git-dir")
+          .revParse("--absolute-git-dir")
           .pipe(
             Effect.mapError(
               (e) => new StackError({ message: `Not a git repository: ${e.message}` }),
@@ -60,14 +60,38 @@ export class StackService extends ServiceMap.Service<
       const decodeStackFile = Schema.decodeUnknownEffect(StackFileJson);
       const encodeStackFile = Schema.encodeEffect(StackFileJson);
 
+      const detectTrunk = Effect.fn("StackService.detectTrunk")(function* () {
+        // Check common default branch names
+        for (const candidate of ["main", "master", "develop"]) {
+          const exists = yield* git
+            .branchExists(candidate)
+            .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
+          if (exists) return candidate;
+        }
+        return "main";
+      });
+
       const load = Effect.fn("StackService.load")(function* () {
         const path = yield* stackFilePath();
         const file = Bun.file(path);
-        const exists = yield* Effect.promise(() => file.exists());
-        if (!exists) return emptyStackFile;
-        const text = yield* Effect.promise(() => file.text());
+        const exists = yield* Effect.tryPromise({
+          try: () => file.exists(),
+          catch: () => new StackError({ message: `Failed to check if ${path} exists` }),
+        });
+        if (!exists) {
+          const trunk = yield* detectTrunk();
+          return { ...emptyStackFile, trunk } satisfies StackFile;
+        }
+        const text = yield* Effect.tryPromise({
+          try: () => file.text(),
+          catch: () => new StackError({ message: `Failed to read ${path}` }),
+        });
         return yield* decodeStackFile(text).pipe(
-          Effect.catch(() => Effect.succeed(emptyStackFile)),
+          Effect.catchTag("SchemaError", (e) =>
+            Effect.logWarning(`Corrupted stack file, resetting: ${e.message}`).pipe(
+              Effect.as(emptyStackFile),
+            ),
+          ),
         );
       });
 
@@ -76,9 +100,10 @@ export class StackService extends ServiceMap.Service<
         const text = yield* encodeStackFile(data).pipe(
           Effect.mapError(() => new StackError({ message: `Failed to encode stack data` })),
         );
-        yield* Effect.promise(() => Bun.write(path, text + "\n")).pipe(
-          Effect.mapError(() => new StackError({ message: `Failed to write ${path}` })),
-        );
+        yield* Effect.tryPromise({
+          try: () => Bun.write(path, text + "\n"),
+          catch: () => new StackError({ message: `Failed to write ${path}` }),
+        });
       });
 
       const findBranchStack = (data: StackFile, branch: string) => {
@@ -106,6 +131,12 @@ export class StackService extends ServiceMap.Service<
           after?: string,
         ) {
           const data = yield* load();
+          const existing = findBranchStack(data, branch);
+          if (existing !== null) {
+            return yield* new StackError({
+              message: `Branch "${branch}" is already in stack "${existing.name}"`,
+            });
+          }
           const stack = data.stacks[stackName];
           if (stack === undefined) {
             return yield* new StackError({ message: `Stack "${stackName}" not found` });

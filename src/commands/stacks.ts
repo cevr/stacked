@@ -1,11 +1,13 @@
-import { Command } from "effect/unstable/cli";
+import { Command, Flag } from "effect/unstable/cli";
 import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 
-export const stacks = Command.make("stacks").pipe(
+const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
+
+export const stacks = Command.make("stacks", { json: jsonFlag }).pipe(
   Command.withDescription("List all stacks in the repo"),
-  Command.withHandler(() =>
+  Command.withHandler(({ json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stackService = yield* StackService;
@@ -15,12 +17,28 @@ export const stacks = Command.make("stacks").pipe(
 
       const entries = Object.entries(data.stacks);
       if (entries.length === 0) {
-        yield* Console.log("No stacks");
+        if (json) {
+          // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+          yield* Console.log(JSON.stringify({ stacks: [] }));
+        } else {
+          yield* Console.log("No stacks");
+        }
+        return;
+      }
+
+      if (json) {
+        const stackList = entries.map(([name, stack]) => ({
+          name,
+          branches: stack.branches.length,
+          current: stack.branches.includes(currentBranch),
+        }));
+        // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+        yield* Console.log(JSON.stringify({ stacks: stackList }, null, 2));
         return;
       }
 
       const lines: string[] = [];
-      for (const [name, stack] of Object.entries(data.stacks)) {
+      for (const [name, stack] of entries) {
         const isCurrent = stack.branches.includes(currentBranch);
         const marker = isCurrent ? "* " : "  ";
         const count = stack.branches.length;

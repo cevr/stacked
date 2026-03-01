@@ -2,9 +2,14 @@ import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
+import { StackError } from "../errors/index.js";
 
 const nameArg = Argument.string("name");
-const fromFlag = Flag.string("from").pipe(Flag.optional, Flag.withAlias("f"));
+const fromFlag = Flag.string("from").pipe(
+  Flag.optional,
+  Flag.withAlias("f"),
+  Flag.withDescription("Branch from a specific branch instead of current"),
+);
 
 export const create = Command.make("create", { name: nameArg, from: fromFlag }).pipe(
   Command.withDescription("Create a new branch on top of current branch in stack"),
@@ -17,6 +22,11 @@ export const create = Command.make("create", { name: nameArg, from: fromFlag }).
       const baseBranch = Option.isSome(from) ? from.value : currentBranch;
       const trunk = yield* stacks.getTrunk();
 
+      const branchAlreadyExists = yield* git.branchExists(name);
+      if (branchAlreadyExists) {
+        return yield* new StackError({ message: `Branch "${name}" already exists` });
+      }
+
       const data = yield* stacks.load();
       let stackName: string | null = null;
 
@@ -26,6 +36,8 @@ export const create = Command.make("create", { name: nameArg, from: fromFlag }).
           break;
         }
       }
+
+      yield* git.createBranch(name, baseBranch);
 
       if (stackName === null) {
         if (baseBranch === trunk) {
@@ -37,7 +49,6 @@ export const create = Command.make("create", { name: nameArg, from: fromFlag }).
         }
       }
 
-      yield* git.createBranch(name, baseBranch);
       yield* stacks.addBranch(stackName, name, baseBranch === trunk ? undefined : baseBranch);
 
       yield* Console.log(`Created branch ${name} on top of ${baseBranch}`);

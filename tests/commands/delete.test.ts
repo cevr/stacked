@@ -3,7 +3,8 @@ import { describe, it, expect } from "effect-bun-test";
 import { Effect } from "effect";
 import { StackService } from "../../src/services/Stack.js";
 import type { StackFile } from "../../src/services/Stack.js";
-import { createTestLayer } from "../helpers/test-cli.js";
+import { CallRecorder, createTestLayer } from "../helpers/test-cli.js";
+import { GitService } from "../../src/services/Git.js";
 
 describe("delete command logic", () => {
   const stackData: StackFile = {
@@ -47,6 +48,32 @@ describe("delete command logic", () => {
       Effect.provide(
         createTestLayer({
           git: { currentBranch: "main" },
+          stack: stackData,
+        }),
+      ),
+    ),
+  );
+
+  it.effect("git.deleteBranch is called before metadata removal", () =>
+    Effect.gen(function* () {
+      const git = yield* GitService;
+      const stacks = yield* StackService;
+      const recorder = yield* CallRecorder;
+
+      // Simulate delete of tail branch
+      yield* git.deleteBranch("feat-c", false);
+      yield* stacks.removeBranch("feat-a", "feat-c");
+
+      const calls = yield* recorder.calls;
+      const deleteIdx = calls.findIndex((c) => c.service === "Git" && c.method === "deleteBranch");
+      expect(deleteIdx).toBeGreaterThanOrEqual(0);
+
+      const data = yield* stacks.load();
+      expect(data.stacks["feat-a"]?.branches).toEqual(["feat-a", "feat-b"]);
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: { currentBranch: "feat-a" },
           stack: stackData,
         }),
       ),

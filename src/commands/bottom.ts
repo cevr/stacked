@@ -2,6 +2,7 @@ import { Command } from "effect/unstable/cli";
 import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
+import { StackError } from "../errors/index.js";
 
 export const bottom = Command.make("bottom").pipe(
   Command.withDescription("Checkout bottom branch of stack"),
@@ -12,14 +13,12 @@ export const bottom = Command.make("bottom").pipe(
 
       const result = yield* stacks.currentStack();
       if (result === null) {
-        yield* Console.error("Not on a stacked branch");
-        return;
+        return yield* new StackError({ message: "Not on a stacked branch" });
       }
 
       const bottomBranch = result.stack.branches[0];
       if (bottomBranch === undefined) {
-        yield* Console.error("Stack is empty");
-        return;
+        return yield* new StackError({ message: "Stack is empty" });
       }
 
       yield* git.checkout(bottomBranch);

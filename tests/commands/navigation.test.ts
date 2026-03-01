@@ -37,8 +37,6 @@ describe("navigation commands", () => {
   it.effect("top resolves to last branch in stack", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      // currentStack returns based on test-branch default in layerTest
-      // So test the logic directly
       const data = yield* stacks.load();
       const stack = data.stacks["feat-a"];
       const topBranch = stack?.branches[stack.branches.length - 1];
@@ -64,6 +62,85 @@ describe("navigation commands", () => {
       Effect.provide(
         createTestLayer({
           git: { currentBranch: "feat-c" },
+          stack: stackData,
+        }),
+      ),
+    ),
+  );
+
+  it.effect("up resolves to next branch in stack", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const data = yield* stacks.load();
+      const stack = data.stacks["feat-a"];
+      const branches = stack?.branches ?? [];
+      const currentBranch = "feat-a";
+      const idx = branches.indexOf(currentBranch);
+      const next = branches[idx + 1];
+      expect(next).toBe("feat-b");
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: { currentBranch: "feat-a" },
+          stack: stackData,
+        }),
+      ),
+    ),
+  );
+
+  it.effect("down resolves to previous branch in stack", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const data = yield* stacks.load();
+      const stack = data.stacks["feat-a"];
+      const branches = stack?.branches ?? [];
+      const currentBranch = "feat-c";
+      const idx = branches.indexOf(currentBranch);
+      const prev = branches[idx - 1];
+      expect(prev).toBe("feat-b");
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: { currentBranch: "feat-c" },
+          stack: stackData,
+        }),
+      ),
+    ),
+  );
+
+  it.effect("up at top has no next branch", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const data = yield* stacks.load();
+      const stack = data.stacks["feat-a"];
+      const branches = stack?.branches ?? [];
+      const currentBranch = "feat-c";
+      const idx = branches.indexOf(currentBranch);
+      const next = branches[idx + 1];
+      expect(next).toBeUndefined();
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: { currentBranch: "feat-c" },
+          stack: stackData,
+        }),
+      ),
+    ),
+  );
+
+  it.effect("down at bottom has no previous branch", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const data = yield* stacks.load();
+      const stack = data.stacks["feat-a"];
+      const branches = stack?.branches ?? [];
+      const currentBranch = "feat-a";
+      const idx = branches.indexOf(currentBranch);
+      expect(idx).toBe(0);
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: { currentBranch: "feat-a" },
           stack: stackData,
         }),
       ),

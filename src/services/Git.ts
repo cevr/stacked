@@ -27,6 +27,7 @@ export class GitService extends ServiceMap.Service<
     readonly isAncestor: (ancestor: string, descendant: string) => Effect.Effect<boolean, GitError>;
     readonly remote: () => Effect.Effect<string, GitError>;
     readonly fetch: (remote?: string) => Effect.Effect<void, GitError>;
+    readonly deleteRemoteBranch: (branch: string) => Effect.Effect<void, GitError>;
   }
 >()("@cvr/stacked/services/Git/GitService") {
   static layer: Layer.Layer<GitService> = Layer.sync(GitService, () => {
@@ -35,9 +36,27 @@ export class GitService extends ServiceMap.Service<
         stdout: "pipe",
         stderr: "pipe",
       });
-      const exitCode = yield* Effect.promise(() => proc.exited);
-      const stdout = yield* Effect.promise(() => new Response(proc.stdout).text());
-      const stderr = yield* Effect.promise(() => new Response(proc.stderr).text());
+      const exitCode = yield* Effect.tryPromise({
+        try: () => proc.exited,
+        catch: (e) =>
+          new GitError({ message: `Process failed: ${e}`, command: `git ${args.join(" ")}` }),
+      });
+      const stdout = yield* Effect.tryPromise({
+        try: () => new Response(proc.stdout).text(),
+        catch: (e) =>
+          new GitError({
+            message: `Failed to read stdout: ${e}`,
+            command: `git ${args.join(" ")}`,
+          }),
+      });
+      const stderr = yield* Effect.tryPromise({
+        try: () => new Response(proc.stderr).text(),
+        catch: (e) =>
+          new GitError({
+            message: `Failed to read stderr: ${e}`,
+            command: `git ${args.join(" ")}`,
+          }),
+      });
 
       if (exitCode !== 0) {
         return yield* new GitError({
@@ -62,9 +81,9 @@ export class GitService extends ServiceMap.Service<
         ),
 
       branchExists: (name) =>
-        run(["rev-parse", "--verify", name]).pipe(
+        run(["rev-parse", "--verify", `refs/heads/${name}`]).pipe(
           Effect.as(true),
-          Effect.catch(() => Effect.succeed(false)),
+          Effect.catchTag("GitError", () => Effect.succeed(false)),
         ),
 
       createBranch: (name, from) => {
@@ -107,12 +126,15 @@ export class GitService extends ServiceMap.Service<
       isAncestor: (ancestor, descendant) =>
         run(["merge-base", "--is-ancestor", ancestor, descendant]).pipe(
           Effect.as(true),
-          Effect.catch(() => Effect.succeed(false)),
+          Effect.catchTag("GitError", () => Effect.succeed(false)),
         ),
 
       remote: () => run(["remote"]),
 
       fetch: (remote) => run(["fetch", remote ?? "origin"]).pipe(Effect.asVoid),
+
+      deleteRemoteBranch: (branch) =>
+        run(["push", "origin", "--delete", branch]).pipe(Effect.asVoid),
     };
   });
 
@@ -134,6 +156,7 @@ export class GitService extends ServiceMap.Service<
       isAncestor: () => Effect.succeed(true),
       remote: () => Effect.succeed("origin"),
       fetch: () => Effect.void,
+      deleteRemoteBranch: () => Effect.void,
       ...impl,
     });
 }

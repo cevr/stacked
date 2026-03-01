@@ -3,7 +3,9 @@ import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 
-const dryRunFlag = Flag.boolean("dry-run");
+const dryRunFlag = Flag.boolean("dry-run").pipe(
+  Flag.withDescription("Show what would be detected without making changes"),
+);
 
 export const detect = Command.make("detect", { dryRun: dryRunFlag }).pipe(
   Command.withDescription("Detect and register branch stacks from git history"),
@@ -29,39 +31,41 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag }).pipe(
       // A parent is the closest ancestor — i.e., an ancestor that is not an ancestor of another ancestor
       const childOf = new Map<string, string>();
 
-      for (const branch of untracked) {
-        const ancestors: string[] = [];
+      yield* Effect.forEach(
+        untracked,
+        (branch) =>
+          Effect.gen(function* () {
+            // Check all potential ancestors (trunk + other untracked) in parallel
+            const potentialAncestors = [trunk, ...untracked.filter((b) => b !== branch)];
+            const ancestryResults = yield* Effect.forEach(
+              potentialAncestors,
+              (other) =>
+                git.isAncestor(other, branch).pipe(
+                  Effect.catchTag("GitError", () => Effect.succeed(false)),
+                  Effect.map((is) => [other, is] as const),
+                ),
+              { concurrency: 5 },
+            );
 
-        // Check trunk
-        const trunkIsAncestor = yield* git
-          .isAncestor(trunk, branch)
-          .pipe(Effect.catch(() => Effect.succeed(false)));
-        if (trunkIsAncestor) ancestors.push(trunk);
+            const ancestors = ancestryResults.filter(([_, is]) => is).map(([name]) => name);
 
-        // Check other untracked branches
-        for (const other of untracked) {
-          if (other === branch) continue;
-          const is = yield* git
-            .isAncestor(other, branch)
-            .pipe(Effect.catch(() => Effect.succeed(false)));
-          if (is) ancestors.push(other);
-        }
+            if (ancestors.length === 0) return;
 
-        if (ancestors.length === 0) continue;
+            // Find the closest ancestor — the one that is a descendant of all others
+            let closest = ancestors[0] ?? trunk;
+            for (let i = 1; i < ancestors.length; i++) {
+              const candidate = ancestors[i];
+              if (candidate === undefined) continue;
+              const candidateIsCloser = yield* git
+                .isAncestor(closest, candidate)
+                .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
+              if (candidateIsCloser) closest = candidate;
+            }
 
-        // Find the closest ancestor — the one that is a descendant of all others
-        let closest = ancestors[0] ?? trunk;
-        for (let i = 1; i < ancestors.length; i++) {
-          const candidate = ancestors[i];
-          if (candidate === undefined) continue;
-          const candidateIsCloser = yield* git
-            .isAncestor(closest, candidate)
-            .pipe(Effect.catch(() => Effect.succeed(false)));
-          if (candidateIsCloser) closest = candidate;
-        }
-
-        childOf.set(branch, closest);
-      }
+            childOf.set(branch, closest);
+          }),
+        { concurrency: 5 },
+      );
 
       // Build linear chains from trunk
       // Find branches whose parent is trunk (chain roots)

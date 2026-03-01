@@ -23,36 +23,43 @@ What do you need?
 ├─ Detect existing branches   → §Detecting Existing Branches
 ├─ Clean up merged branches   → §Cleaning Up Merged Branches
 ├─ Remove a branch            → §Deleting
+├─ Install Claude skill       → §Setup
 └─ Troubleshooting            → §Gotchas
 ```
 
 ## Quick Reference
 
-| Command                   | What it does                                                  |
-| ------------------------- | ------------------------------------------------------------- |
-| `stacked trunk [name]`    | Get/set trunk branch (default: main)                          |
-| `stacked create <name>`   | Create branch on top of current branch                        |
-| `stacked list [stack]`    | Show stack branches (defaults to current stack)               |
-| `stacked stacks`          | List all stacks in the repo                                   |
-| `stacked checkout <name>` | Switch to branch in stack                                     |
-| `stacked top`             | Jump to top of stack                                          |
-| `stacked bottom`          | Jump to bottom of stack                                       |
-| `stacked sync`            | Fetch + rebase stack on trunk (--from to start from a branch) |
-| `stacked detect`          | Detect branch chains and register as stacks (--dry-run)       |
-| `stacked clean`           | Remove merged branches from stacks (--dry-run to preview)     |
-| `stacked delete <name>`   | Remove branch from stack + delete git branch                  |
-| `stacked submit`          | Push all branches + create/update PRs via `gh`                |
-| `stacked adopt <branch>`  | Add existing git branch into the stack                        |
-| `stacked log`             | Show commits grouped by branch                                |
+| Command                   | What it does                                                         |
+| ------------------------- | -------------------------------------------------------------------- |
+| `stacked trunk [name]`    | Get/set trunk branch (auto-detected on first use)                    |
+| `stacked create <name>`   | Create branch on top of current branch (`--from` to pick base)       |
+| `stacked list [stack]`    | Show stack branches (`--json` for machine output)                    |
+| `stacked stacks`          | List all stacks in the repo (`--json` for machine output)            |
+| `stacked checkout <name>` | Switch to branch in stack                                            |
+| `stacked up`              | Move up one branch in the stack                                      |
+| `stacked down`            | Move down one branch in the stack                                    |
+| `stacked top`             | Jump to top of stack                                                 |
+| `stacked bottom`          | Jump to bottom of stack                                              |
+| `stacked sync`            | Fetch + rebase stack on trunk (`--from` to start from a branch)      |
+| `stacked detect`          | Detect branch chains and register as stacks (`--dry-run`)            |
+| `stacked clean`           | Remove merged branches + remote branches (`--dry-run` to preview)    |
+| `stacked delete <name>`   | Remove branch from stack + git + remote (`--keep-remote` to opt out) |
+| `stacked submit`          | Push all + create/update PRs (force-push by default, `--no-force`)   |
+| `stacked adopt <branch>`  | Add existing git branch into the stack (`--after` to position)       |
+| `stacked log`             | Show commits grouped by branch (`--json` for machine output)         |
+| `stacked init`            | Install the stacked Claude skill to ~/.claude/skills                 |
 
 ## Setup
 
 ```sh
-# Set trunk if not "main"
+# Trunk is auto-detected (main > master > develop). Override if needed:
 stacked trunk develop
+
+# Install the Claude skill (optional, compiled binary only):
+stacked init
 ```
 
-Requires `gh` CLI installed and authenticated for `submit`.
+Requires `gh` CLI installed and authenticated for `submit` and `clean`.
 
 ## Creating a Stack
 
@@ -80,16 +87,21 @@ stacked create hotfix --from feat-auth
 ```sh
 stacked list              # shows current stack's branches
 stacked list feat-auth    # shows a specific stack by name
+stacked list --json       # machine-readable JSON output
 stacked stacks            # lists all stacks in the repo
+stacked stacks --json     # machine-readable JSON output
 stacked log               # shows commits grouped by branch
+stacked log --json        # machine-readable JSON output
 ```
 
 ## Navigation
 
 ```sh
-stacked checkout feat-auth    # switch to specific branch
-stacked top                   # jump to top of stack
-stacked bottom                # jump to bottom (trunk-adjacent)
+stacked up                   # move up one branch
+stacked down                 # move down one branch
+stacked checkout feat-auth   # switch to specific branch
+stacked top                  # jump to top of stack
+stacked bottom               # jump to bottom (trunk-adjacent)
 ```
 
 ## Syncing / Rebasing
@@ -108,16 +120,20 @@ stacked checkout feat-auth
 stacked sync --from feat-auth    # rebases only children of feat-auth
 ```
 
+**Note:** `sync` requires a clean working tree — commit or stash before running. If a rebase fails mid-stack, the original branch is automatically restored.
+
 ## Submitting
 
 Push all stack branches and create/update GitHub PRs with correct base branches:
 
 ```sh
-stacked submit              # push + create/update PRs
+stacked submit              # push + create/update PRs (force-pushes by default)
 stacked submit --draft      # create as draft PRs
-stacked submit --force      # force push
+stacked submit --no-force   # disable force-push (plain push)
 stacked submit --dry-run    # show what would happen
 ```
+
+Force-push (with lease) is the default because stacked branches are always rebased. Use `--no-force` if you haven't rebased.
 
 Each PR targets its parent branch (not trunk), preserving the stack structure on GitHub.
 
@@ -143,21 +159,24 @@ Only linear chains are detected. Forked branches (one parent with multiple child
 
 ## Cleaning Up Merged Branches
 
-After PRs are merged on GitHub, clean up the local branches and stack metadata:
+After PRs are merged on GitHub, clean up the local and remote branches and stack metadata:
 
 ```sh
 stacked clean              # removes all merged branches from all stacks
 stacked clean --dry-run    # preview what would be removed
 ```
 
-`list` also shows merge status per branch (`[merged]`, `[closed]`, `[#N]` for open PRs).
+`clean` also deletes the corresponding remote branches. `list` shows merge status per branch (`[merged]`, `[closed]`, `[#N]` for open PRs).
 
 ## Deleting
 
 ```sh
-stacked delete feat-auth-ui            # removes from stack + deletes git branch
-stacked delete feat-auth-ui --force    # skip confirmation
+stacked delete feat-auth-ui              # removes from stack + deletes local + remote branch
+stacked delete feat-auth-ui --force      # skip children check
+stacked delete feat-auth-ui --keep-remote  # don't delete remote branch
 ```
+
+Deleting a mid-stack branch with `--force` warns you to run `stacked sync` to rebase child branches onto the new parent.
 
 ## Data Model
 
@@ -165,6 +184,8 @@ Stack metadata lives in `.git/stacked.json`. Each branch's parent is implied by 
 
 - `branches[0]` → parent is trunk
 - `branches[n]` → parent is `branches[n-1]`
+
+Trunk is auto-detected on first use by checking for `main`, `master`, or `develop` branches. Override with `stacked trunk <name>`.
 
 A repo can have multiple independent stacks. The current stack is determined by which branch you're on.
 
@@ -192,13 +213,22 @@ stacked submit --draft
 
 # 6. After review, final submit
 stacked submit
+
+# 7. Navigate quickly
+stacked up    # go to next branch
+stacked down  # go to previous branch
 ```
 
 ## Gotchas
 
+- `stacked sync` requires a clean working tree — commit or stash first
 - `stacked sync` rebases bottom-to-top — resolve conflicts one branch at a time
-- `stacked submit` requires `gh` CLI authenticated (`gh auth login`)
+- `stacked sync` restores your original branch even if rebase fails
+- `stacked submit` force-pushes by default (use `--no-force` to disable)
+- `stacked submit` and `stacked clean` require `gh` CLI authenticated (`gh auth login`)
 - PRs target parent branches, not trunk — this is intentional for stacked review
-- Trunk defaults to `main` — use `stacked trunk <name>` if your default branch differs
+- Trunk is auto-detected (`main` > `master` > `develop`) — use `stacked trunk <name>` to override
 - Rebase conflicts mid-stack will pause the operation — resolve and re-run
 - Forked branches (one parent, multiple children) are not supported — `detect` reports them but skips
+- `stacked delete --force` on a mid-stack branch requires `stacked sync` afterward
+- `stacked checkout` only works for branches tracked in a stack

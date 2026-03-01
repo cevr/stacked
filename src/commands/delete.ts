@@ -5,11 +5,21 @@ import { StackService } from "../services/Stack.js";
 import { StackError } from "../errors/index.js";
 
 const nameArg = Argument.string("name");
-const forceFlag = Flag.boolean("force").pipe(Flag.withAlias("f"));
+const forceFlag = Flag.boolean("force").pipe(
+  Flag.withAlias("f"),
+  Flag.withDescription("Delete even if branch has children in the stack"),
+);
+const keepRemoteFlag = Flag.boolean("keep-remote").pipe(
+  Flag.withDescription("Don't delete the remote branch"),
+);
 
-export const deleteCmd = Command.make("delete", { name: nameArg, force: forceFlag }).pipe(
+export const deleteCmd = Command.make("delete", {
+  name: nameArg,
+  force: forceFlag,
+  keepRemote: keepRemoteFlag,
+}).pipe(
   Command.withDescription("Remove branch from stack and delete git branch"),
-  Command.withHandler(({ name, force }) =>
+  Command.withHandler(({ name, force, keepRemote }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
@@ -46,10 +56,21 @@ export const deleteCmd = Command.make("delete", { name: nameArg, force: forceFla
         yield* git.checkout(parent);
       }
 
-      yield* stacks.removeBranch(stackName, name);
+      const hadChildren = idx < stack.branches.length - 1;
+
       yield* git.deleteBranch(name, force);
+      yield* stacks.removeBranch(stackName, name);
+
+      if (!keepRemote) {
+        yield* git.deleteRemoteBranch(name).pipe(Effect.catchTag("GitError", () => Effect.void));
+      }
 
       yield* Console.log(`Deleted ${name}`);
+      if (hadChildren) {
+        yield* Console.log(
+          "Warning: branch had children. Run 'stacked sync' to rebase them onto the new parent.",
+        );
+      }
     }),
   ),
 );

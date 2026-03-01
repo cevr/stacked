@@ -5,7 +5,11 @@ import { StackService } from "../services/Stack.js";
 import { StackError } from "../errors/index.js";
 
 const branchArg = Argument.string("branch");
-const afterFlag = Flag.string("after").pipe(Flag.optional, Flag.withAlias("a"));
+const afterFlag = Flag.string("after").pipe(
+  Flag.optional,
+  Flag.withAlias("a"),
+  Flag.withDescription("Insert after this branch in the stack"),
+);
 
 export const adopt = Command.make("adopt", { branch: branchArg, after: afterFlag }).pipe(
   Command.withDescription("Adopt existing git branch into current stack"),
@@ -17,6 +21,15 @@ export const adopt = Command.make("adopt", { branch: branchArg, after: afterFlag
       const exists = yield* git.branchExists(branch);
       if (!exists) {
         return yield* new StackError({ message: `Branch "${branch}" does not exist` });
+      }
+
+      const data = yield* stacks.load();
+      for (const [sName, stack] of Object.entries(data.stacks)) {
+        if (stack.branches.includes(branch)) {
+          return yield* new StackError({
+            message: `Branch "${branch}" is already tracked in stack "${sName}"`,
+          });
+        }
       }
 
       const result = yield* stacks.currentStack();

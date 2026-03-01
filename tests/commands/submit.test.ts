@@ -16,7 +16,7 @@ describe("submit command logic", () => {
     },
   };
 
-  it.effect("pushes and creates PRs for each branch", () =>
+  it.effect("pushes with force by default and creates PRs for each branch", () =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const gh = yield* GitHubService;
@@ -32,7 +32,8 @@ describe("submit command logic", () => {
         if (branch === undefined) continue;
         const base = i === 0 ? trunk : (branches[i - 1] ?? trunk);
 
-        yield* git.push(branch, { force: false });
+        // Default is force-push (force: true)
+        yield* git.push(branch, { force: true });
         const existingPR = yield* gh.getPR(branch);
         if (existingPR === null) {
           yield* gh.createPR({ head: branch, base, title: branch });
@@ -40,11 +41,37 @@ describe("submit command logic", () => {
       }
 
       const calls = yield* recorder.calls;
-      expectCall(calls, "Git", "push", { branch: "feat-a" });
+      expectCall(calls, "Git", "push", { branch: "feat-a", force: true });
       expectCall(calls, "GitHub", "getPR", { branch: "feat-a" });
       expectCall(calls, "GitHub", "createPR");
-      expectCall(calls, "Git", "push", { branch: "feat-b" });
+      expectCall(calls, "Git", "push", { branch: "feat-b", force: true });
       expectCall(calls, "GitHub", "getPR", { branch: "feat-b" });
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: { currentBranch: "feat-a" },
+          stack: stackData,
+        }),
+      ),
+    ),
+  );
+
+  it.effect("pushes without force when --no-force is set", () =>
+    Effect.gen(function* () {
+      const git = yield* GitService;
+      const recorder = yield* CallRecorder;
+      const stacks = yield* StackService;
+
+      const data = yield* stacks.load();
+      const branches = data.stacks["feat-a"]?.branches ?? [];
+
+      for (const branch of branches) {
+        yield* git.push(branch, { force: false });
+      }
+
+      const calls = yield* recorder.calls;
+      expectCall(calls, "Git", "push", { branch: "feat-a", force: false });
+      expectCall(calls, "Git", "push", { branch: "feat-b", force: false });
     }).pipe(
       Effect.provide(
         createTestLayer({

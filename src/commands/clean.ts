@@ -3,8 +3,11 @@ import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { GitHubService } from "../services/GitHub.js";
 import { StackService } from "../services/Stack.js";
+import { StackError } from "../errors/index.js";
 
-const dryRunFlag = Flag.boolean("dry-run");
+const dryRunFlag = Flag.boolean("dry-run").pipe(
+  Flag.withDescription("Show what would be removed without making changes"),
+);
 
 export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
   Command.withDescription("Remove merged branches from stacks (bottom-up)"),
@@ -14,8 +17,31 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
       const gh = yield* GitHubService;
       const stacks = yield* StackService;
 
-      const currentBranch = yield* git.currentBranch();
+      const ghInstalled = yield* gh.isGhInstalled();
+      if (!ghInstalled) {
+        return yield* new StackError({
+          message: "gh CLI is not installed. Install it from https://cli.github.com",
+        });
+      }
+
+      let currentBranch = yield* git.currentBranch();
       const data = yield* stacks.load();
+
+      // Fetch all PR statuses in parallel across all stacks
+      const allBranches = Object.entries(data.stacks).flatMap(([stackName, stack]) =>
+        stack.branches.map((branch) => ({ stackName, branch })),
+      );
+
+      const prResults = yield* Effect.forEach(
+        allBranches,
+        ({ branch }) =>
+          gh.getPR(branch).pipe(
+            Effect.catchTag("GitHubError", () => Effect.succeed(null)),
+            Effect.map((pr) => [branch, pr] as const),
+          ),
+        { concurrency: 5 },
+      );
+      const prMap = new Map(prResults);
 
       const toRemove: Array<{ stackName: string; branch: string }> = [];
       const skippedMerged: Array<{ stackName: string; branch: string }> = [];
@@ -23,7 +49,7 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
       for (const [stackName, stack] of Object.entries(data.stacks)) {
         let hitNonMerged = false;
         for (const branch of stack.branches) {
-          const pr = yield* gh.getPR(branch).pipe(Effect.catch(() => Effect.succeed(null)));
+          const pr = prMap.get(branch) ?? null;
           const isMerged = pr !== null && pr.state === "MERGED";
 
           if (!hitNonMerged && isMerged) {
@@ -55,9 +81,15 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
           if (currentBranch === branch) {
             const trunk = yield* stacks.getTrunk();
             yield* git.checkout(trunk);
+            currentBranch = trunk;
           }
+          yield* git
+            .deleteBranch(branch, true)
+            .pipe(Effect.catchTag("GitError", () => Effect.void));
+          yield* git
+            .deleteRemoteBranch(branch)
+            .pipe(Effect.catchTag("GitError", () => Effect.void));
           yield* stacks.removeBranch(stackName, branch);
-          yield* git.deleteBranch(branch, true).pipe(Effect.catch(() => Effect.void));
           yield* Console.log(`Removed ${branch} from ${stackName}`);
         }
       }

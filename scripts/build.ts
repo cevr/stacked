@@ -1,4 +1,4 @@
-import { mkdirSync, lstatSync, unlinkSync, symlinkSync } from "fs";
+import { mkdirSync, lstatSync, unlinkSync, symlinkSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import * as os from "node:os";
@@ -6,6 +6,9 @@ import * as os from "node:os";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const rootDir = join(__dirname, "..");
+
+const pkg = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf-8"));
+const skillContent = readFileSync(join(rootDir, "skills", "stacked", "SKILL.md"), "utf-8");
 
 console.log("Building stacked...");
 
@@ -20,6 +23,10 @@ const buildResult = await Bun.build({
   entrypoints: [join(rootDir, "src/main.ts")],
   target: "bun",
   minify: false,
+  define: {
+    __VERSION__: JSON.stringify(pkg.version),
+    __SKILL_CONTENT__: JSON.stringify(skillContent),
+  },
   compile: {
     target: `bun-${platform}-${arch}`,
     outfile: join(binDir, "stacked"),

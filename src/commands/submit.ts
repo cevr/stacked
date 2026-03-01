@@ -3,27 +3,41 @@ import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { GitHubService } from "../services/GitHub.js";
+import { StackError } from "../errors/index.js";
 
-const draftFlag = Flag.boolean("draft").pipe(Flag.withAlias("d"));
-const forceFlag = Flag.boolean("force").pipe(Flag.withAlias("f"));
-const dryRunFlag = Flag.boolean("dry-run");
+const draftFlag = Flag.boolean("draft").pipe(
+  Flag.withAlias("d"),
+  Flag.withDescription("Create PRs as drafts"),
+);
+const noForceFlag = Flag.boolean("no-force").pipe(
+  Flag.withDescription("Disable force-push (force-with-lease is on by default)"),
+);
+const dryRunFlag = Flag.boolean("dry-run").pipe(
+  Flag.withDescription("Show what would happen without making changes"),
+);
 
 export const submit = Command.make("submit", {
   draft: draftFlag,
-  force: forceFlag,
+  noForce: noForceFlag,
   dryRun: dryRunFlag,
 }).pipe(
   Command.withDescription("Push all stack branches and create/update PRs via gh"),
-  Command.withHandler(({ draft, force, dryRun }) =>
+  Command.withHandler(({ draft, noForce, dryRun }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
       const gh = yield* GitHubService;
 
+      const ghInstalled = yield* gh.isGhInstalled();
+      if (!ghInstalled) {
+        return yield* new StackError({
+          message: "gh CLI is not installed. Install it from https://cli.github.com",
+        });
+      }
+
       const result = yield* stacks.currentStack();
       if (result === null) {
-        yield* Console.error("Not on a stacked branch");
-        return;
+        return yield* new StackError({ message: "Not on a stacked branch" });
       }
 
       const trunk = yield* stacks.getTrunk();
@@ -40,7 +54,7 @@ export const submit = Command.make("submit", {
         }
 
         yield* Console.log(`Pushing ${branch}...`);
-        yield* git.push(branch, { force });
+        yield* git.push(branch, { force: !noForce });
 
         const existingPR = yield* gh.getPR(branch);
 
@@ -52,10 +66,11 @@ export const submit = Command.make("submit", {
             yield* Console.log(`PR #${existingPR.number} already exists: ${existingPR.url}`);
           }
         } else {
+          const title = branch.replace(/[-_]/g, " ").replace(/^\w/, (c) => c.toUpperCase());
           const pr = yield* gh.createPR({
             head: branch,
             base,
-            title: branch,
+            title,
             draft,
           });
           yield* Console.log(`Created PR #${pr.number}: ${pr.url}`);

@@ -90,6 +90,8 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
           Effect.succeed(options.isAncestor?.(ancestor, descendant) ?? true),
         remote: () => Effect.succeed("origin"),
         fetch: () => recorder.record({ service: "Git", method: "fetch" }),
+        deleteRemoteBranch: (branch: string) =>
+          recorder.record({ service: "Git", method: "deleteRemoteBranch", args: { branch } }),
       };
     }),
   );

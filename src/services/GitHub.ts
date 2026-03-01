@@ -39,9 +39,27 @@ export class GitHubService extends ServiceMap.Service<
         stdout: "pipe",
         stderr: "pipe",
       });
-      const exitCode = yield* Effect.promise(() => proc.exited);
-      const stdout = yield* Effect.promise(() => new Response(proc.stdout).text());
-      const stderr = yield* Effect.promise(() => new Response(proc.stderr).text());
+      const exitCode = yield* Effect.tryPromise({
+        try: () => proc.exited,
+        catch: (e) =>
+          new GitHubError({ message: `Process failed: ${e}`, command: `gh ${args.join(" ")}` }),
+      });
+      const stdout = yield* Effect.tryPromise({
+        try: () => new Response(proc.stdout).text(),
+        catch: (e) =>
+          new GitHubError({
+            message: `Failed to read stdout: ${e}`,
+            command: `gh ${args.join(" ")}`,
+          }),
+      });
+      const stderr = yield* Effect.tryPromise({
+        try: () => new Response(proc.stderr).text(),
+        catch: (e) =>
+          new GitHubError({
+            message: `Failed to read stderr: ${e}`,
+            command: `gh ${args.join(" ")}`,
+          }),
+      });
 
       if (exitCode !== 0) {
         return yield* new GitHubError({
@@ -88,12 +106,12 @@ export class GitHubService extends ServiceMap.Service<
           branch,
           "--json",
           "number,url,state,baseRefName",
-        ]).pipe(Effect.catch(() => Effect.succeed(null)));
+        ]).pipe(Effect.catchTag("GitHubError", () => Effect.succeed(null)));
 
         if (result === null) return null;
         const data = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(GhPrResponse))(
           result,
-        ).pipe(Effect.catch(() => Effect.succeed(null)));
+        ).pipe(Effect.catchTag("SchemaError", () => Effect.succeed(null)));
         if (data === null) return null;
         return {
           number: data.number,
@@ -105,12 +123,11 @@ export class GitHubService extends ServiceMap.Service<
 
       isGhInstalled: () =>
         Effect.sync(() => {
-          try {
-            Bun.spawnSync(["gh", "--version"]);
-            return true;
-          } catch {
-            return false;
-          }
+          const result = Bun.spawnSync(["gh", "--version"], {
+            stdout: "ignore",
+            stderr: "ignore",
+          });
+          return result.exitCode === 0;
         }),
     };
   });
