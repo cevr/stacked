@@ -1,5 +1,5 @@
 import { Command, Flag } from "effect/unstable/cli";
-import { Effect, Option } from "effect";
+import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { ErrorCode, StackError } from "../errors/index.js";
@@ -15,14 +15,30 @@ const fromFlag = Flag.string("from").pipe(
   Flag.withAlias("f"),
   Flag.withDescription("Start rebasing after this branch (exclusive)"),
 );
+const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
+const dryRunFlag = Flag.boolean("dry-run").pipe(
+  Flag.withDescription("Show rebase plan without executing"),
+);
 
-export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).pipe(
+interface SyncResult {
+  name: string;
+  action: "rebased" | "skipped" | "up-to-date";
+  base: string;
+}
+
+export const sync = Command.make("sync", {
+  trunk: trunkFlag,
+  from: fromFlag,
+  json: jsonFlag,
+  dryRun: dryRunFlag,
+}).pipe(
   Command.withDescription("Fetch and rebase stack on trunk. Use --from to start from a branch."),
   Command.withExamples([
     { command: "stacked sync", description: "Rebase entire stack on trunk" },
     { command: "stacked sync --from feat-auth", description: "Resume from a specific branch" },
+    { command: "stacked sync --dry-run", description: "Preview rebase plan" },
   ]),
-  Command.withHandler(({ trunk: trunkOpt, from: fromOpt }) =>
+  Command.withHandler(({ trunk: trunkOpt, from: fromOpt, json, dryRun }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
@@ -30,15 +46,15 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
       const trunk = Option.isSome(trunkOpt) ? trunkOpt.value : yield* stacks.getTrunk();
       const currentBranch = yield* git.currentBranch();
 
-      const clean = yield* git.isClean();
-      if (!clean) {
-        return yield* new StackError({
-          code: ErrorCode.DIRTY_WORKTREE,
-          message: "Working tree has uncommitted changes. Commit or stash before syncing.",
-        });
+      if (!dryRun) {
+        const clean = yield* git.isClean();
+        if (!clean) {
+          return yield* new StackError({
+            code: ErrorCode.DIRTY_WORKTREE,
+            message: "Working tree has uncommitted changes. Commit or stash before syncing.",
+          });
+        }
       }
-
-      yield* withSpinner(`Fetching ${trunk}`, git.fetch());
 
       const result = yield* stacks.currentStack();
       if (result === null) {
@@ -68,6 +84,32 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
         }
       }
 
+      const results: SyncResult[] = [];
+
+      if (dryRun) {
+        for (let i = startIdx; i < branches.length; i++) {
+          const branch = branches[i];
+          if (branch === undefined) continue;
+          const base = i === 0 ? `origin/${trunk}` : (branches[i - 1] ?? `origin/${trunk}`);
+          results.push({ name: branch, action: "skipped", base });
+          if (!json) {
+            yield* Console.error(`Would rebase ${branch} onto ${base}`);
+          }
+        }
+
+        if (json) {
+          // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+          yield* Console.log(JSON.stringify({ branches: results }, null, 2));
+        } else {
+          yield* Console.error(
+            `\n${results.length} branch${results.length === 1 ? "" : "es"} would be rebased`,
+          );
+        }
+        return;
+      }
+
+      yield* withSpinner(`Fetching ${trunk}`, git.fetch());
+
       yield* Effect.gen(function* () {
         for (let i = startIdx; i < branches.length; i++) {
           const branch = branches[i];
@@ -95,6 +137,7 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
               );
             }),
           );
+          results.push({ name: branch, action: "rebased", base: newBase });
         }
       }).pipe(
         Effect.ensuring(
@@ -108,7 +151,12 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
         ),
       );
 
-      yield* success("Stack synced");
+      if (json) {
+        // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+        yield* Console.log(JSON.stringify({ branches: results }, null, 2));
+      } else {
+        yield* success("Stack synced");
+      }
     }),
   ),
 );
