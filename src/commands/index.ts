@@ -21,6 +21,7 @@ import { doctor } from "./doctor.js";
 import { rename } from "./rename.js";
 import { reorder } from "./reorder.js";
 import { split } from "./split.js";
+import { amend } from "./amend.js";
 
 const root = Command.make("stacked").pipe(
   Command.withDescription(
@@ -58,5 +59,6 @@ export const command = root.pipe(
     rename,
     reorder,
     split,
+    amend,
   ]),
 );

@@ -28,6 +28,7 @@ export class GitService extends ServiceMap.Service<
     readonly isAncestor: (ancestor: string, descendant: string) => Effect.Effect<boolean, GitError>;
     readonly mergeBase: (a: string, b: string) => Effect.Effect<string, GitError>;
     readonly isRebaseInProgress: () => Effect.Effect<boolean>;
+    readonly commitAmend: (options?: { edit?: boolean }) => Effect.Effect<void, GitError>;
     readonly fetch: (remote?: string) => Effect.Effect<void, GitError>;
     readonly deleteRemoteBranch: (branch: string) => Effect.Effect<void, GitError>;
   }
@@ -159,6 +160,12 @@ export class GitService extends ServiceMap.Service<
           Effect.catch(() => Effect.succeed(false)),
         ),
 
+      commitAmend: (options) => {
+        const args = ["commit", "--amend"];
+        if (options?.edit !== true) args.push("--no-edit");
+        return run(args).pipe(Effect.asVoid);
+      },
+
       fetch: (remote) => run(["fetch", remote ?? "origin"]).pipe(Effect.asVoid),
 
       deleteRemoteBranch: (branch) =>
@@ -184,6 +191,7 @@ export class GitService extends ServiceMap.Service<
       isAncestor: () => Effect.succeed(true),
       mergeBase: () => Effect.succeed("abc123"),
       isRebaseInProgress: () => Effect.succeed(false),
+      commitAmend: () => Effect.void,
       fetch: () => Effect.void,
       deleteRemoteBranch: () => Effect.void,
       ...impl,
