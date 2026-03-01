@@ -58,6 +58,13 @@ export const deleteCmd = Command.make("delete", {
       }
 
       if (currentBranch === name) {
+        const clean = yield* git.isClean();
+        if (!clean) {
+          return yield* new StackError({
+            message:
+              "Working tree has uncommitted changes. Commit or stash before deleting the current branch.",
+          });
+        }
         const parent = idx === 0 ? data.trunk : (stack.branches[idx - 1] ?? data.trunk);
         yield* git.checkout(parent);
       }
