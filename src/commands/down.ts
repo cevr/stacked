@@ -1,8 +1,9 @@
 import { Command } from "effect/unstable/cli";
-import { Console, Effect } from "effect";
+import { Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { ErrorCode, StackError } from "../errors/index.js";
+import { success } from "../ui.js";
 
 export const down = Command.make("down").pipe(
   Command.withDescription("Move down one branch in the stack"),
@@ -47,7 +48,7 @@ export const down = Command.make("down").pipe(
       }
 
       yield* git.checkout(prev);
-      yield* Console.error(`Switched to ${prev}`);
+      yield* success(`Switched to ${prev}`);
     }),
   ),
 );

@@ -1,7 +1,8 @@
 import { Argument, Command } from "effect/unstable/cli";
-import { Console, Effect } from "effect";
+import { Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
+import { success } from "../ui.js";
 
 const nameArg = Argument.string("name").pipe(Argument.withDescription("Branch name to check out"));
 
@@ -19,9 +20,9 @@ export const checkout = Command.make("checkout", { name: nameArg }).pipe(
 
       yield* git.checkout(name);
       if (result !== null) {
-        yield* Console.error(`Switched to ${name}`);
+        yield* success(`Switched to ${name}`);
       } else {
-        yield* Console.error(`Switched to ${name} (not in a stack)`);
+        yield* success(`Switched to ${name} (not in a stack)`);
       }
     }),
   ),

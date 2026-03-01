@@ -1,8 +1,9 @@
 import { Command } from "effect/unstable/cli";
-import { Console, Effect } from "effect";
+import { Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { ErrorCode, StackError } from "../errors/index.js";
+import { success } from "../ui.js";
 
 export const bottom = Command.make("bottom").pipe(
   Command.withDescription("Checkout bottom branch of stack"),
@@ -32,7 +33,7 @@ export const bottom = Command.make("bottom").pipe(
       }
 
       yield* git.checkout(bottomBranch);
-      yield* Console.error(`Switched to ${bottomBranch}`);
+      yield* success(`Switched to ${bottomBranch}`);
     }),
   ),
 );
