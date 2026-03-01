@@ -14,27 +14,27 @@ describe("sync command logic", () => {
     },
   };
 
-  it.effect("fetches and rebases all branches bottom-to-top", () =>
+  it.effect("fetches and rebases all branches using rebaseOnto", () =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const recorder = yield* CallRecorder;
 
       yield* git.fetch();
+      yield* git.mergeBase("feat-a", "origin/main");
       yield* git.checkout("feat-a");
-      yield* git.rebase("origin/main");
+      yield* git.rebaseOnto("feat-a", "origin/main", "abc123");
+      yield* git.mergeBase("feat-b", "feat-a");
       yield* git.checkout("feat-b");
-      yield* git.rebase("feat-a");
+      yield* git.rebaseOnto("feat-b", "feat-a", "abc123");
+      yield* git.mergeBase("feat-c", "feat-b");
       yield* git.checkout("feat-c");
-      yield* git.rebase("feat-b");
+      yield* git.rebaseOnto("feat-c", "feat-b", "abc123");
 
       const calls = yield* recorder.calls;
       expectCall(calls, "Git", "fetch");
-      expectCall(calls, "Git", "checkout", { name: "feat-a" });
-      expectCall(calls, "Git", "rebase", { onto: "origin/main" });
-      expectCall(calls, "Git", "checkout", { name: "feat-b" });
-      expectCall(calls, "Git", "rebase", { onto: "feat-a" });
-      expectCall(calls, "Git", "checkout", { name: "feat-c" });
-      expectCall(calls, "Git", "rebase", { onto: "feat-b" });
+      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-a", newBase: "origin/main" });
+      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-b", newBase: "feat-a" });
+      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-c", newBase: "feat-b" });
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -45,27 +45,21 @@ describe("sync command logic", () => {
     ),
   );
 
-  it.effect("calls rebaseAbort and restores branch on rebase failure", () =>
+  it.effect("does not abort rebase on conflict — leaves it in progress", () =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const recorder = yield* CallRecorder;
 
-      // Simulate rebase failure on feat-b: checkout, then rebase fails, then abort
+      // Simulate: sync does NOT call rebaseAbort anymore
       yield* git.fetch();
+      yield* git.mergeBase("feat-a", "origin/main");
       yield* git.checkout("feat-a");
-      yield* git.rebase("origin/main");
-      yield* git.checkout("feat-b");
-      // rebase would fail here — verify abort is called
-      yield* git.rebaseAbort();
-      // ensuring restores original branch
-      yield* git.checkout("feat-a");
+      yield* git.rebaseOnto("feat-a", "origin/main", "abc123");
 
       const calls = yield* recorder.calls;
-      expectCall(calls, "Git", "rebaseAbort");
-      // Should restore to original branch
-      const checkouts = calls.filter((c) => c.service === "Git" && c.method === "checkout");
-      const lastCheckout = checkouts[checkouts.length - 1];
-      expect((lastCheckout?.args as { name: string })?.name).toBe("feat-a");
+      // rebaseAbort should NOT be called in the new implementation
+      const abortCalls = calls.filter((c) => c.service === "Git" && c.method === "rebaseAbort");
+      expect(abortCalls).toHaveLength(0);
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -83,24 +77,59 @@ describe("sync command logic", () => {
 
       // Simulate sync --from feat-a: skip feat-a, rebase feat-b and feat-c
       yield* git.fetch();
+      yield* git.mergeBase("feat-b", "feat-a");
       yield* git.checkout("feat-b");
-      yield* git.rebase("feat-a");
+      yield* git.rebaseOnto("feat-b", "feat-a", "abc123");
+      yield* git.mergeBase("feat-c", "feat-b");
       yield* git.checkout("feat-c");
-      yield* git.rebase("feat-b");
+      yield* git.rebaseOnto("feat-c", "feat-b", "abc123");
 
       const calls = yield* recorder.calls;
       expectCall(calls, "Git", "fetch");
       // Should not checkout or rebase feat-a (it's the --from branch, skipped)
-      const rebaseCalls = calls.filter((c) => c.service === "Git" && c.method === "rebase");
+      const rebaseCalls = calls.filter((c) => c.service === "Git" && c.method === "rebaseOnto");
       expect(rebaseCalls).toHaveLength(2);
-      expectCall(calls, "Git", "checkout", { name: "feat-b" });
-      expectCall(calls, "Git", "rebase", { onto: "feat-a" });
-      expectCall(calls, "Git", "checkout", { name: "feat-c" });
-      expectCall(calls, "Git", "rebase", { onto: "feat-b" });
+      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-b", newBase: "feat-a" });
+      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-c", newBase: "feat-b" });
     }).pipe(
       Effect.provide(
         createTestLayer({
           git: { currentBranch: "feat-a" },
+          stack: stackData,
+        }),
+      ),
+    ),
+  );
+
+  it.effect("ensuring block restores branch when no rebase in progress", () =>
+    Effect.gen(function* () {
+      const git = yield* GitService;
+      const recorder = yield* CallRecorder;
+
+      // isRebaseInProgress returns false → should restore original branch
+      yield* git.checkout("feat-a");
+
+      const calls = yield* recorder.calls;
+      expectCall(calls, "Git", "checkout", { name: "feat-a" });
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: { currentBranch: "feat-a" },
+          stack: stackData,
+        }),
+      ),
+    ),
+  );
+
+  it.effect("dirty worktree prevents sync", () =>
+    Effect.gen(function* () {
+      const git = yield* GitService;
+      const isClean = yield* git.isClean();
+      expect(isClean).toBe(false);
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: { currentBranch: "feat-a", isClean: false },
           stack: stackData,
         }),
       ),

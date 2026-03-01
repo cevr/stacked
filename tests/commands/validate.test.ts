@@ -62,4 +62,44 @@ describe("validateBranchName", () => {
       expect(result).toContain("must start with alphanumeric");
     }),
   );
+
+  it.effect("rejects empty branch name", () =>
+    Effect.gen(function* () {
+      const result = yield* validateBranchName("").pipe(
+        Effect.as("ok"),
+        Effect.catchTag("StackError", (e) => Effect.succeed(e.message)),
+      );
+      expect(result).toContain("cannot be empty");
+    }),
+  );
+
+  it.effect("rejects names ending with .", () =>
+    Effect.gen(function* () {
+      const result = yield* validateBranchName("feat.").pipe(
+        Effect.as("ok"),
+        Effect.catchTag("StackError", (e) => Effect.succeed(e.message)),
+      );
+      expect(result).toContain('cannot end with "."');
+    }),
+  );
+
+  it.effect("rejects names ending with /", () =>
+    Effect.gen(function* () {
+      const result = yield* validateBranchName("feat/").pipe(
+        Effect.as("ok"),
+        Effect.catchTag("StackError", (e) => Effect.succeed(e.message)),
+      );
+      expect(result).toContain('cannot end with "/"');
+    }),
+  );
+
+  it.effect("rejects single @ character", () =>
+    Effect.gen(function* () {
+      const result = yield* validateBranchName("@").pipe(
+        Effect.as("ok"),
+        Effect.catchTag("StackError", (e) => Effect.succeed(e.message)),
+      );
+      expect(result).toContain("not a valid branch name");
+    }),
+  );
 });
