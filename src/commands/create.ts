@@ -13,6 +13,13 @@ const fromFlag = Flag.string("from").pipe(
 
 export const create = Command.make("create", { name: nameArg, from: fromFlag }).pipe(
   Command.withDescription("Create a new branch on top of current branch in stack"),
+  Command.withExamples([
+    { command: "stacked create feat-auth", description: "Create branch on top of current" },
+    {
+      command: "stacked create feat-ui --from feat-auth",
+      description: "Branch from a specific branch",
+    },
+  ]),
   Command.withHandler(({ name, from }) =>
     Effect.gen(function* () {
       const git = yield* GitService;

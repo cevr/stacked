@@ -114,6 +114,14 @@ export const submit = Command.make("submit", {
   body: bodyFlag,
 }).pipe(
   Command.withDescription("Push all stack branches and create/update PRs via gh"),
+  Command.withExamples([
+    { command: "stacked submit", description: "Push and create/update PRs for all branches" },
+    { command: "stacked submit --draft", description: "Create PRs as drafts" },
+    {
+      command: 'stacked submit --title "Add auth" --body "Implements OAuth2"',
+      description: "With PR title and body",
+    },
+  ]),
   Command.withHandler(({ draft, noForce, dryRun, title: titleOpt, body: bodyOpt }) =>
     Effect.gen(function* () {
       const git = yield* GitService;

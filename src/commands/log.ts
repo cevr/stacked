@@ -8,6 +8,10 @@ const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"
 
 export const log = Command.make("log", { json: jsonFlag }).pipe(
   Command.withDescription("Show commits across all branches in stack"),
+  Command.withExamples([
+    { command: "stacked log", description: "Show commits per branch" },
+    { command: "stacked log --json", description: "JSON output" },
+  ]),
   Command.withHandler(({ json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;

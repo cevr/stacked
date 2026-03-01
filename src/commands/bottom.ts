@@ -6,6 +6,9 @@ import { StackError } from "../errors/index.js";
 
 export const bottom = Command.make("bottom").pipe(
   Command.withDescription("Checkout bottom branch of stack"),
+  Command.withExamples([
+    { command: "stacked bottom", description: "Jump to the bottom of the stack" },
+  ]),
   Command.withHandler(() =>
     Effect.gen(function* () {
       const git = yield* GitService;

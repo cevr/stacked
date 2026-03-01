@@ -7,6 +7,9 @@ const nameArg = Argument.string("name");
 
 export const checkout = Command.make("checkout", { name: nameArg }).pipe(
   Command.withDescription("Switch to a branch (falls through to git if not in a stack)"),
+  Command.withExamples([
+    { command: "stacked checkout feat-b", description: "Switch to a stacked branch" },
+  ]),
   Command.withHandler(({ name }) =>
     Effect.gen(function* () {
       const git = yield* GitService;

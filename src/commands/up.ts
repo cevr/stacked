@@ -6,6 +6,7 @@ import { StackError } from "../errors/index.js";
 
 export const up = Command.make("up").pipe(
   Command.withDescription("Move up one branch in the stack"),
+  Command.withExamples([{ command: "stacked up", description: "Move to the next branch above" }]),
   Command.withHandler(() =>
     Effect.gen(function* () {
       const git = yield* GitService;

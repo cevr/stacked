@@ -18,6 +18,10 @@ const fromFlag = Flag.string("from").pipe(
 
 export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).pipe(
   Command.withDescription("Fetch and rebase stack on trunk. Use --from to start from a branch."),
+  Command.withExamples([
+    { command: "stacked sync", description: "Rebase entire stack on trunk" },
+    { command: "stacked sync --from feat-auth", description: "Resume from a specific branch" },
+  ]),
   Command.withHandler(({ trunk: trunkOpt, from: fromOpt }) =>
     Effect.gen(function* () {
       const git = yield* GitService;

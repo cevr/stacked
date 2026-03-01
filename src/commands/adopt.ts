@@ -13,6 +13,13 @@ const afterFlag = Flag.string("after").pipe(
 
 export const adopt = Command.make("adopt", { branch: branchArg, after: afterFlag }).pipe(
   Command.withDescription("Adopt existing git branch into current stack"),
+  Command.withExamples([
+    { command: "stacked adopt feat-existing", description: "Add branch to current stack" },
+    {
+      command: "stacked adopt feat-x --after feat-a",
+      description: "Insert after a specific branch",
+    },
+  ]),
   Command.withHandler(({ branch, after }) =>
     Effect.gen(function* () {
       const git = yield* GitService;

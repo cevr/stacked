@@ -8,6 +8,10 @@ const nameArg = Argument.string("name").pipe(Argument.optional);
 
 export const trunk = Command.make("trunk", { name: nameArg }).pipe(
   Command.withDescription("Get or set the trunk branch"),
+  Command.withExamples([
+    { command: "stacked trunk", description: "Print current trunk branch" },
+    { command: "stacked trunk develop", description: "Set trunk to develop" },
+  ]),
   Command.withHandler(({ name }) =>
     Effect.gen(function* () {
       const git = yield* GitService;

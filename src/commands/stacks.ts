@@ -8,6 +8,10 @@ const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"
 
 export const stacks = Command.make("stacks", { json: jsonFlag }).pipe(
   Command.withDescription("List all stacks in the repo"),
+  Command.withExamples([
+    { command: "stacked stacks", description: "List all stacks" },
+    { command: "stacked stacks --json", description: "JSON output" },
+  ]),
   Command.withHandler(({ json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;

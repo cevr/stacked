@@ -9,6 +9,7 @@ const skillContent = typeof __SKILL_CONTENT__ !== "undefined" ? __SKILL_CONTENT_
 
 export const init = Command.make("init").pipe(
   Command.withDescription("Install the stacked Claude skill to ~/.claude/skills"),
+  Command.withExamples([{ command: "stacked init", description: "Install the Claude skill" }]),
   Command.withHandler(() =>
     Effect.gen(function* () {
       if (skillContent === null) {

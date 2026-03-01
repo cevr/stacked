@@ -6,6 +6,9 @@ import { bold, green, yellow, dim } from "../ui.js";
 
 export const status = Command.make("status").pipe(
   Command.withDescription("Show current branch, stack position, and working tree state"),
+  Command.withExamples([
+    { command: "stacked status", description: "Show where you are in the stack" },
+  ]),
   Command.withHandler(() =>
     Effect.gen(function* () {
       const git = yield* GitService;

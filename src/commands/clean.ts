@@ -12,6 +12,10 @@ const dryRunFlag = Flag.boolean("dry-run").pipe(
 
 export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
   Command.withDescription("Remove merged branches from stacks (bottom-up)"),
+  Command.withExamples([
+    { command: "stacked clean", description: "Remove merged branches" },
+    { command: "stacked clean --dry-run", description: "Preview what would be removed" },
+  ]),
   Command.withHandler(({ dryRun }) =>
     Effect.gen(function* () {
       const git = yield* GitService;

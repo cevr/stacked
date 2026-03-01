@@ -19,6 +19,10 @@ export const deleteCmd = Command.make("delete", {
   keepRemote: keepRemoteFlag,
 }).pipe(
   Command.withDescription("Remove branch from stack and delete git branch"),
+  Command.withExamples([
+    { command: "stacked delete feat-old", description: "Delete a leaf branch" },
+    { command: "stacked delete feat-mid --force", description: "Force delete a mid-stack branch" },
+  ]),
   Command.withHandler(({ name, force, keepRemote }) =>
     Effect.gen(function* () {
       const git = yield* GitService;

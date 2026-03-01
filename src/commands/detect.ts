@@ -10,6 +10,10 @@ const dryRunFlag = Flag.boolean("dry-run").pipe(
 
 export const detect = Command.make("detect", { dryRun: dryRunFlag }).pipe(
   Command.withDescription("Detect and register branch stacks from git history"),
+  Command.withExamples([
+    { command: "stacked detect", description: "Auto-discover and register stacks" },
+    { command: "stacked detect --dry-run", description: "Preview what would be detected" },
+  ]),
   Command.withHandler(({ dryRun }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
