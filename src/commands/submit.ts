@@ -19,13 +19,16 @@ const dryRunFlag = Flag.boolean("dry-run").pipe(
 const titleFlag = Flag.string("title").pipe(
   Flag.optional,
   Flag.withAlias("t"),
-  Flag.withDescription("PR title (defaults to branch name)"),
+  Flag.withDescription(
+    "PR title (defaults to branch name). Comma-delimited for per-branch titles.",
+  ),
 );
 const bodyFlag = Flag.string("body").pipe(
   Flag.optional,
   Flag.withAlias("b"),
-  Flag.withDescription("PR body/description"),
+  Flag.withDescription("PR body/description. Comma-delimited for per-branch bodies."),
 );
+const onlyFlag = Flag.boolean("only").pipe(Flag.withDescription("Only submit the current branch"));
 
 interface SubmitResult {
   branch: string;
@@ -114,18 +117,20 @@ export const submit = Command.make("submit", {
   dryRun: dryRunFlag,
   title: titleFlag,
   body: bodyFlag,
+  only: onlyFlag,
   json: jsonFlag,
 }).pipe(
   Command.withDescription("Push all stack branches and create/update PRs via gh"),
   Command.withExamples([
     { command: "stacked submit", description: "Push and create/update PRs for all branches" },
     { command: "stacked submit --draft", description: "Create PRs as drafts" },
+    { command: "stacked submit --only", description: "Submit only the current branch" },
     {
       command: 'stacked submit --title "Add auth" --body "Implements OAuth2"',
       description: "With PR title and body",
     },
   ]),
-  Command.withHandler(({ draft, noForce, dryRun, title: titleOpt, body: bodyOpt, json }) =>
+  Command.withHandler(({ draft, noForce, dryRun, title: titleOpt, body: bodyOpt, only, json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
@@ -147,9 +152,46 @@ export const submit = Command.make("submit", {
       }
 
       const trunk = yield* stacks.getTrunk();
+      const currentBranch = yield* git.currentBranch();
       const { branches } = result.stack;
-      const userTitle = Option.isSome(titleOpt) ? titleOpt.value : undefined;
-      const userBody = Option.isSome(bodyOpt) ? bodyOpt.value : undefined;
+
+      const rawTitle = Option.isSome(titleOpt) ? titleOpt.value : undefined;
+      const rawBody = Option.isSome(bodyOpt) ? bodyOpt.value : undefined;
+
+      // Parse comma-delimited titles/bodies for per-branch support
+      const titles =
+        rawTitle !== undefined && rawTitle.includes(",")
+          ? rawTitle.split(",").map((s) => s.trim())
+          : undefined;
+      const bodies =
+        rawBody !== undefined && rawBody.includes(",")
+          ? rawBody.split(",").map((s) => s.trim())
+          : undefined;
+
+      if (titles !== undefined && titles.length !== branches.length) {
+        return yield* new StackError({
+          message: `--title has ${titles.length} values but stack has ${branches.length} branches`,
+        });
+      }
+      if (bodies !== undefined && bodies.length !== branches.length) {
+        return yield* new StackError({
+          message: `--body has ${bodies.length} values but stack has ${branches.length} branches`,
+        });
+      }
+
+      const getTitleForBranch = (branch: string, idx: number): string | undefined => {
+        if (titles !== undefined) return titles[idx];
+        // Single --title: apply only to current branch
+        if (rawTitle !== undefined && branch === currentBranch) return rawTitle;
+        return undefined;
+      };
+
+      const getBodyForBranch = (branch: string, idx: number): string | undefined => {
+        if (bodies !== undefined) return bodies[idx];
+        // Single --body: apply only to current branch
+        if (rawBody !== undefined && branch === currentBranch) return rawBody;
+        return undefined;
+      };
 
       const results: SubmitResult[] = [];
       const prMap = new Map<
@@ -161,6 +203,9 @@ export const submit = Command.make("submit", {
         const branch = branches[i];
         if (branch === undefined) continue;
         const base = i === 0 ? trunk : (branches[i - 1] ?? trunk);
+
+        // --only: skip branches that aren't current
+        if (only && branch !== currentBranch) continue;
 
         if (dryRun) {
           yield* Console.error(`Would push ${branch} and create/update PR (base: ${base})`);
@@ -192,9 +237,11 @@ export const submit = Command.make("submit", {
             });
           }
         } else {
+          const userTitle = getTitleForBranch(branch, i);
           const title =
             userTitle ?? branch.replace(/[-_]/g, " ").replace(/^\w/, (c) => c.toUpperCase());
           const metadata = generateStackMetadata(branches, prMap, i, result.name);
+          const userBody = getBodyForBranch(branch, i);
           const body = composePRBody(userBody, metadata);
 
           const pr = yield* gh.createPR({
@@ -221,6 +268,7 @@ export const submit = Command.make("submit", {
       for (let i = 0; i < branches.length; i++) {
         const branch = branches[i];
         if (branch === undefined) continue;
+        if (only && branch !== currentBranch) continue;
 
         const entry = results.find((x) => x.branch === branch);
         if (entry === undefined || entry.action === "created") continue;
@@ -228,6 +276,7 @@ export const submit = Command.make("submit", {
         const metadata = generateStackMetadata(branches, prMap, i, result.name);
         const existingPrData = prMap.get(branch) ?? null;
         const existingBody = existingPrData?.body ?? undefined;
+        const userBody = getBodyForBranch(branch, i);
         const body = updatePRBody(existingBody, userBody, metadata);
         yield* gh.updatePR({ branch, body });
       }
