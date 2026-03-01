@@ -52,6 +52,22 @@ export const adopt = Command.make("adopt", {
 
       const alreadyTracked = yield* stacks.findBranchStack(branch);
       if (alreadyTracked !== null) {
+        const result = yield* stacks.currentStack();
+        if (result !== null && alreadyTracked.name === result.name) {
+          if (json) {
+            // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+            yield* Console.log(
+              JSON.stringify(
+                { adopted: branch, stack: result.name, alreadyTracked: true },
+                null,
+                2,
+              ),
+            );
+          } else {
+            yield* Console.error(`Branch "${branch}" is already in stack "${result.name}"`);
+          }
+          return;
+        }
         return yield* new StackError({
           code: ErrorCode.BRANCH_EXISTS,
           message: `Branch "${branch}" is already tracked in stack "${alreadyTracked.name}"`,

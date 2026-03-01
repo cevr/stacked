@@ -56,9 +56,25 @@ export const create = Command.make("create", {
 
       const branchAlreadyExists = yield* git.branchExists(name);
       if (branchAlreadyExists) {
+        const tracked = yield* stacks.findBranchStack(name);
+        if (tracked !== null) {
+          if (json) {
+            // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+            yield* Console.log(
+              JSON.stringify(
+                { branch: name, stack: tracked.name, base: baseBranch, alreadyExists: true },
+                null,
+                2,
+              ),
+            );
+          } else {
+            yield* Console.error(`Branch "${name}" already exists in stack "${tracked.name}"`);
+          }
+          return;
+        }
         return yield* new StackError({
           code: ErrorCode.BRANCH_EXISTS,
-          message: `Branch "${name}" already exists`,
+          message: `Branch "${name}" already exists but is not tracked in any stack`,
         });
       }
 
