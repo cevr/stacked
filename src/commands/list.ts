@@ -4,6 +4,7 @@ import { GitService } from "../services/Git.js";
 import { GitHubService } from "../services/GitHub.js";
 import { StackService } from "../services/Stack.js";
 import { StackError } from "../errors/index.js";
+import { bold, dim, green, cyan } from "../ui.js";
 
 const stackNameArg = Argument.string("stack").pipe(Argument.optional);
 const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
@@ -74,28 +75,29 @@ export const list = Command.make("list", { stackName: stackNameArg, json: jsonFl
 
       const lines: string[] = [];
 
-      lines.push(`Stack: ${targetStackName}`);
-      lines.push(`Trunk: ${trunk}`);
+      lines.push(`Stack: ${bold(targetStackName)}`);
+      lines.push(`Trunk: ${dim(trunk)}`);
       lines.push("");
 
       for (let i = targetStack.branches.length - 1; i >= 0; i--) {
         const branch = targetStack.branches[i];
         if (branch === undefined) continue;
         const isCurrent = branch === currentBranch;
-        const marker = isCurrent ? "* " : "  ";
-        const prefix = i === 0 ? "└─" : "├─";
+        const marker = isCurrent ? green("* ") : "  ";
+        const prefix = dim(i === 0 ? "└─" : "├─");
+        const name = isCurrent ? bold(branch) : branch;
 
         const pr = prMap.get(branch) ?? null;
         const status =
           pr === null
             ? ""
             : pr.state === "MERGED"
-              ? " [merged]"
+              ? green(" [merged]")
               : pr.state === "CLOSED"
-                ? " [closed]"
-                : ` [#${pr.number}]`;
+                ? dim(" [closed]")
+                : cyan(` [#${pr.number}]`);
 
-        lines.push(`${marker}${prefix} ${branch}${status}`);
+        lines.push(`${marker}${prefix} ${name}${status}`);
       }
 
       yield* Console.log(lines.join("\n"));

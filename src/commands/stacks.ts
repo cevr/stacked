@@ -2,6 +2,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
+import { bold, dim, green } from "../ui.js";
 
 const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
 
@@ -40,9 +41,10 @@ export const stacks = Command.make("stacks", { json: jsonFlag }).pipe(
       const lines: string[] = [];
       for (const [name, stack] of entries) {
         const isCurrent = stack.branches.includes(currentBranch);
-        const marker = isCurrent ? "* " : "  ";
+        const marker = isCurrent ? green("* ") : "  ";
+        const label = isCurrent ? bold(name) : name;
         const count = stack.branches.length;
-        lines.push(`${marker}${name} (${count} branch${count === 1 ? "" : "es"})`);
+        lines.push(`${marker}${label} ${dim(`(${count} branch${count === 1 ? "" : "es"})`)}`);
       }
 
       yield* Console.log(lines.join("\n"));

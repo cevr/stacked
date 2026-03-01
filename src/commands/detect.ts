@@ -2,6 +2,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
+import { success, warn, info } from "../ui.js";
 
 const dryRunFlag = Flag.boolean("dry-run").pipe(
   Flag.withDescription("Show what would be detected without making changes"),
@@ -92,7 +93,7 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag }).pipe(
       }
 
       if (chains.length === 0) {
-        yield* Console.error("No linear branch chains detected");
+        yield* info("No linear branch chains detected");
         return;
       }
 
@@ -103,7 +104,7 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag }).pipe(
           yield* Console.error(`Would create stack "${name}": ${chain.join(" → ")}`);
         } else {
           yield* stacks.createStack(name, chain);
-          yield* Console.error(`Created stack "${name}": ${chain.join(" → ")}`);
+          yield* success(`Created stack "${name}": ${chain.join(" → ")}`);
         }
       }
 
@@ -119,7 +120,7 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag }).pipe(
         return children.length > 1;
       });
       if (forkPoints.length > 0) {
-        yield* Console.error("\nNote: forked branches detected (not supported yet):");
+        yield* warn("Forked branches detected (not supported yet):");
         for (const branch of forkPoints) {
           const children = untracked.filter((c) => childOf.get(c) === branch);
           yield* Console.error(`  ${branch} → ${children.join(", ")}`);

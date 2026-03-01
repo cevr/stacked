@@ -4,6 +4,7 @@ import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { GitHubService } from "../services/GitHub.js";
 import { StackError } from "../errors/index.js";
+import { withSpinner, success } from "../ui.js";
 
 const draftFlag = Flag.boolean("draft").pipe(
   Flag.withAlias("d"),
@@ -152,8 +153,7 @@ export const submit = Command.make("submit", {
           continue;
         }
 
-        yield* Console.error(`Pushing ${branch}...`);
-        yield* git.push(branch, { force: !noForce });
+        yield* withSpinner(`Pushing ${branch}`, git.push(branch, { force: !noForce }));
 
         const existingPR = yield* gh.getPR(branch);
         prMap.set(branch, existingPR);
@@ -191,7 +191,7 @@ export const submit = Command.make("submit", {
             draft,
           });
           prMap.set(branch, { number: pr.number, url: pr.url, state: "OPEN" });
-          yield* Console.error(`Created PR #${pr.number}: ${pr.url}`);
+          yield* success(`Created PR #${pr.number}: ${pr.url}`);
           results.push({
             branch,
             number: pr.number,

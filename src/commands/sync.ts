@@ -1,8 +1,9 @@
 import { Command, Flag } from "effect/unstable/cli";
-import { Console, Effect, Option } from "effect";
+import { Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { StackError } from "../errors/index.js";
+import { withSpinner, success } from "../ui.js";
 
 const trunkFlag = Flag.string("trunk").pipe(
   Flag.optional,
@@ -32,8 +33,7 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
         });
       }
 
-      yield* Console.error(`Fetching ${trunk}...`);
-      yield* git.fetch();
+      yield* withSpinner(`Fetching ${trunk}`, git.fetch());
 
       const result = yield* stacks.currentStack();
       if (result === null) {
@@ -62,9 +62,8 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
           const branch = branches[i];
           if (branch === undefined) continue;
           const base = i === 0 ? `origin/${trunk}` : (branches[i - 1] ?? `origin/${trunk}`);
-          yield* Console.error(`Rebasing ${branch} onto ${base}...`);
           yield* git.checkout(branch);
-          yield* git.rebase(base).pipe(
+          yield* withSpinner(`Rebasing ${branch} onto ${base}`, git.rebase(base)).pipe(
             Effect.catchTag("GitError", (e) =>
               git.rebaseAbort().pipe(
                 Effect.ignore,
@@ -81,7 +80,7 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
         }
       }).pipe(Effect.ensuring(git.checkout(currentBranch).pipe(Effect.ignore)));
 
-      yield* Console.error("Stack synced");
+      yield* success("Stack synced");
     }),
   ),
 );
