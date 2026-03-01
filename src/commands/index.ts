@@ -19,7 +19,9 @@ import { init } from "./init.js";
 import { status } from "./status.js";
 
 const root = Command.make("stacked").pipe(
-  Command.withDescription("Branch-based stacked PR manager"),
+  Command.withDescription(
+    "Branch-based stacked PR manager\n\nGlobal flags:\n  --verbose       Show detailed output\n  --quiet, -q     Suppress non-essential output\n  --no-color      Disable color output\n  --yes, -y       Skip confirmation prompts",
+  ),
   Command.withExamples([
     { command: "stacked create feat-auth", description: "Create a new branch in the stack" },
     { command: "stacked list", description: "Show branches in the current stack" },
