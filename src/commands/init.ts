@@ -24,7 +24,7 @@ export const init = Command.make("init").pipe(
       mkdirSync(targetDir, { recursive: true });
       writeFileSync(targetPath, skillContent);
 
-      yield* Console.log(`Installed stacked skill to ${targetPath}`);
+      yield* Console.error(`Installed stacked skill to ${targetPath}`);
     }),
   ),
 );

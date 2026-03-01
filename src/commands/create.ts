@@ -51,7 +51,7 @@ export const create = Command.make("create", { name: nameArg, from: fromFlag }).
 
       yield* stacks.addBranch(stackName, name, baseBranch === trunk ? undefined : baseBranch);
 
-      yield* Console.log(`Created branch ${name} on top of ${baseBranch}`);
+      yield* Console.error(`Created branch ${name} on top of ${baseBranch}`);
     }),
   ),
 );

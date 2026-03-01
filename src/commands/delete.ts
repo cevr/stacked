@@ -65,9 +65,9 @@ export const deleteCmd = Command.make("delete", {
         yield* git.deleteRemoteBranch(name).pipe(Effect.catchTag("GitError", () => Effect.void));
       }
 
-      yield* Console.log(`Deleted ${name}`);
+      yield* Console.error(`Deleted ${name}`);
       if (hadChildren) {
-        yield* Console.log(
+        yield* Console.error(
           "Warning: branch had children. Run 'stacked sync' to rebase them onto the new parent.",
         );
       }

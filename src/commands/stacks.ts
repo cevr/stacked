@@ -21,7 +21,7 @@ export const stacks = Command.make("stacks", { json: jsonFlag }).pipe(
           // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
           yield* Console.log(JSON.stringify({ stacks: [] }));
         } else {
-          yield* Console.log("No stacks");
+          yield* Console.error("No stacks");
         }
         return;
       }

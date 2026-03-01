@@ -18,7 +18,7 @@ export const trunk = Command.make("trunk", { name: nameArg }).pipe(
           return yield* new StackError({ message: `Branch "${name.value}" does not exist` });
         }
         yield* stacks.setTrunk(name.value);
-        yield* Console.log(`Trunk set to ${name.value}`);
+        yield* Console.error(`Trunk set to ${name.value}`);
       } else {
         const current = yield* stacks.getTrunk();
         yield* Console.log(current);

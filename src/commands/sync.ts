@@ -32,7 +32,7 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
         });
       }
 
-      yield* Console.log(`Fetching ${trunk}...`);
+      yield* Console.error(`Fetching ${trunk}...`);
       yield* git.fetch();
 
       const result = yield* stacks.currentStack();
@@ -59,7 +59,7 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
           const branch = branches[i];
           if (branch === undefined) continue;
           const base = i === 0 ? `origin/${trunk}` : (branches[i - 1] ?? `origin/${trunk}`);
-          yield* Console.log(`Rebasing ${branch} onto ${base}...`);
+          yield* Console.error(`Rebasing ${branch} onto ${base}...`);
           yield* git.checkout(branch);
           yield* git.rebase(base).pipe(
             Effect.catchTag("GitError", (e) =>
@@ -78,7 +78,7 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
         }
       }).pipe(Effect.ensuring(git.checkout(currentBranch).pipe(Effect.ignore)));
 
-      yield* Console.log("Stack synced");
+      yield* Console.error("Stack synced");
     }),
   ),
 );

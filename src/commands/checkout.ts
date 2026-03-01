@@ -29,7 +29,7 @@ export const checkout = Command.make("checkout", { name: nameArg }).pipe(
       }
 
       yield* git.checkout(name);
-      yield* Console.log(`Switched to ${name}`);
+      yield* Console.error(`Switched to ${name}`);
     }),
   ),
 );

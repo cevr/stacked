@@ -33,7 +33,7 @@ export const down = Command.make("down").pipe(
       }
 
       yield* git.checkout(prev);
-      yield* Console.log(`Switched to ${prev}`);
+      yield* Console.error(`Switched to ${prev}`);
     }),
   ),
 );

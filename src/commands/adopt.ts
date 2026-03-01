@@ -46,7 +46,7 @@ export const adopt = Command.make("adopt", { branch: branchArg, after: afterFlag
         yield* stacks.addBranch(result.name, branch, afterBranch);
       }
 
-      yield* Console.log(`Adopted ${branch} into stack`);
+      yield* Console.error(`Adopted ${branch} into stack`);
     }),
   ),
 );

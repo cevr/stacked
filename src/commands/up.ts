@@ -29,7 +29,7 @@ export const up = Command.make("up").pipe(
       }
 
       yield* git.checkout(next);
-      yield* Console.log(`Switched to ${next}`);
+      yield* Console.error(`Switched to ${next}`);
     }),
   ),
 );

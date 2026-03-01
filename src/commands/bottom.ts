@@ -22,7 +22,7 @@ export const bottom = Command.make("bottom").pipe(
       }
 
       yield* git.checkout(bottomBranch);
-      yield* Console.log(`Switched to ${bottomBranch}`);
+      yield* Console.error(`Switched to ${bottomBranch}`);
     }),
   ),
 );

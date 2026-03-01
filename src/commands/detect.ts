@@ -23,7 +23,7 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag }).pipe(
       const untracked = candidates.filter((b) => !alreadyTracked.has(b));
 
       if (untracked.length === 0) {
-        yield* Console.log("No untracked branches found");
+        yield* Console.error("No untracked branches found");
         return;
       }
 
@@ -92,7 +92,7 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag }).pipe(
       }
 
       if (chains.length === 0) {
-        yield* Console.log("No linear branch chains detected");
+        yield* Console.error("No linear branch chains detected");
         return;
       }
 
@@ -100,15 +100,15 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag }).pipe(
         const name = chain[0];
         if (name === undefined) continue;
         if (dryRun) {
-          yield* Console.log(`Would create stack "${name}": ${chain.join(" → ")}`);
+          yield* Console.error(`Would create stack "${name}": ${chain.join(" → ")}`);
         } else {
           yield* stacks.createStack(name, chain);
-          yield* Console.log(`Created stack "${name}": ${chain.join(" → ")}`);
+          yield* Console.error(`Created stack "${name}": ${chain.join(" → ")}`);
         }
       }
 
       if (dryRun) {
-        yield* Console.log(
+        yield* Console.error(
           `\n${chains.length} stack${chains.length === 1 ? "" : "s"} would be created`,
         );
       }
@@ -119,10 +119,10 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag }).pipe(
         return children.length > 1;
       });
       if (forkPoints.length > 0) {
-        yield* Console.log("\nNote: forked branches detected (not supported yet):");
+        yield* Console.error("\nNote: forked branches detected (not supported yet):");
         for (const branch of forkPoints) {
           const children = untracked.filter((c) => childOf.get(c) === branch);
-          yield* Console.log(`  ${branch} → ${children.join(", ")}`);
+          yield* Console.error(`  ${branch} → ${children.join(", ")}`);
         }
       }
     }),

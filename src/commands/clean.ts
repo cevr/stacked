@@ -62,13 +62,13 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
       }
 
       if (toRemove.length === 0) {
-        yield* Console.log("Nothing to clean");
+        yield* Console.error("Nothing to clean");
         if (skippedMerged.length > 0) {
-          yield* Console.log(
+          yield* Console.error(
             `\nNote: ${skippedMerged.length} merged branch${skippedMerged.length === 1 ? "" : "es"} skipped (non-merged branches below):`,
           );
           for (const { branch, stackName } of skippedMerged) {
-            yield* Console.log(`  ${branch} (${stackName})`);
+            yield* Console.error(`  ${branch} (${stackName})`);
           }
         }
         return;
@@ -76,7 +76,7 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
 
       for (const { stackName, branch } of toRemove) {
         if (dryRun) {
-          yield* Console.log(`Would remove ${branch} from ${stackName}`);
+          yield* Console.error(`Would remove ${branch} from ${stackName}`);
         } else {
           if (currentBranch === branch) {
             const trunk = yield* stacks.getTrunk();
@@ -90,26 +90,26 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag }).pipe(
             .deleteRemoteBranch(branch)
             .pipe(Effect.catchTag("GitError", () => Effect.void));
           yield* stacks.removeBranch(stackName, branch);
-          yield* Console.log(`Removed ${branch} from ${stackName}`);
+          yield* Console.error(`Removed ${branch} from ${stackName}`);
         }
       }
 
       if (dryRun) {
-        yield* Console.log(
+        yield* Console.error(
           `\n${toRemove.length} branch${toRemove.length === 1 ? "" : "es"} would be removed`,
         );
       } else {
-        yield* Console.log(
+        yield* Console.error(
           `\nCleaned ${toRemove.length} merged branch${toRemove.length === 1 ? "" : "es"}`,
         );
       }
 
       if (skippedMerged.length > 0) {
-        yield* Console.log(
+        yield* Console.error(
           `\nNote: ${skippedMerged.length} merged branch${skippedMerged.length === 1 ? "" : "es"} skipped (non-merged branches below):`,
         );
         for (const { branch, stackName } of skippedMerged) {
-          yield* Console.log(`  ${branch} (${stackName})`);
+          yield* Console.error(`  ${branch} (${stackName})`);
         }
       }
     }),

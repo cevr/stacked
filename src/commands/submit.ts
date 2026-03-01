@@ -49,21 +49,21 @@ export const submit = Command.make("submit", {
         const base = i === 0 ? trunk : (branches[i - 1] ?? trunk);
 
         if (dryRun) {
-          yield* Console.log(`Would push ${branch} and create/update PR (base: ${base})`);
+          yield* Console.error(`Would push ${branch} and create/update PR (base: ${base})`);
           continue;
         }
 
-        yield* Console.log(`Pushing ${branch}...`);
+        yield* Console.error(`Pushing ${branch}...`);
         yield* git.push(branch, { force: !noForce });
 
         const existingPR = yield* gh.getPR(branch);
 
         if (existingPR !== null) {
           if (existingPR.base !== base) {
-            yield* Console.log(`Updating PR #${existingPR.number} base to ${base}`);
+            yield* Console.error(`Updating PR #${existingPR.number} base to ${base}`);
             yield* gh.updatePR({ branch, base });
           } else {
-            yield* Console.log(`PR #${existingPR.number} already exists: ${existingPR.url}`);
+            yield* Console.error(`PR #${existingPR.number} already exists: ${existingPR.url}`);
           }
         } else {
           const title = branch.replace(/[-_]/g, " ").replace(/^\w/, (c) => c.toUpperCase());
@@ -73,11 +73,11 @@ export const submit = Command.make("submit", {
             title,
             draft,
           });
-          yield* Console.log(`Created PR #${pr.number}: ${pr.url}`);
+          yield* Console.error(`Created PR #${pr.number}: ${pr.url}`);
         }
       }
 
-      yield* Console.log("Done");
+      yield* Console.error("Done");
     }),
   ),
 );
