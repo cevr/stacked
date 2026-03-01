@@ -1,0 +1,30 @@
+import { Effect } from "effect";
+import { StackError } from "../../errors/index.js";
+
+const BRANCH_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._\-/]*$/;
+
+export const validateBranchName = Effect.fn("validateBranchName")(function* (name: string) {
+  if (name.startsWith("-")) {
+    return yield* new StackError({
+      message: `Invalid branch name "${name}": cannot start with "-"`,
+    });
+  }
+  if (name.includes("..")) {
+    return yield* new StackError({ message: `Invalid branch name "${name}": cannot contain ".."` });
+  }
+  if (name.includes(" ")) {
+    return yield* new StackError({
+      message: `Invalid branch name "${name}": cannot contain spaces`,
+    });
+  }
+  if (name.endsWith(".lock")) {
+    return yield* new StackError({
+      message: `Invalid branch name "${name}": cannot end with ".lock"`,
+    });
+  }
+  if (!BRANCH_NAME_PATTERN.test(name)) {
+    return yield* new StackError({
+      message: `Invalid branch name "${name}": must start with alphanumeric and contain only alphanumerics, dots, hyphens, underscores, or slashes`,
+    });
+  }
+});

@@ -3,8 +3,9 @@ import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { StackError } from "../errors/index.js";
+import { validateBranchName } from "./helpers/validate.js";
 
-const branchArg = Argument.string("branch");
+const branchArg = Argument.string("branch").pipe(Argument.withDescription("Branch name to adopt"));
 const afterFlag = Flag.string("after").pipe(
   Flag.optional,
   Flag.withAlias("a"),
@@ -29,6 +30,8 @@ export const adopt = Command.make("adopt", {
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
+
+      yield* validateBranchName(branch);
 
       const exists = yield* git.branchExists(branch);
       if (!exists) {

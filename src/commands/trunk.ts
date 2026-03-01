@@ -3,8 +3,12 @@ import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { StackError } from "../errors/index.js";
+import { validateBranchName } from "./helpers/validate.js";
 
-const nameArg = Argument.string("name").pipe(Argument.optional);
+const nameArg = Argument.string("name").pipe(
+  Argument.withDescription("Trunk branch name to set"),
+  Argument.optional,
+);
 
 export const trunk = Command.make("trunk", { name: nameArg }).pipe(
   Command.withDescription("Get or set the trunk branch"),
@@ -17,6 +21,7 @@ export const trunk = Command.make("trunk", { name: nameArg }).pipe(
       const git = yield* GitService;
       const stacks = yield* StackService;
       if (Option.isSome(name)) {
+        yield* validateBranchName(name.value);
         const exists = yield* git.branchExists(name.value);
         if (!exists) {
           return yield* new StackError({ message: `Branch "${name.value}" does not exist` });
