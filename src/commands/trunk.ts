@@ -2,7 +2,7 @@ import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
-import { StackError } from "../errors/index.js";
+import { ErrorCode, StackError } from "../errors/index.js";
 import { validateBranchName } from "./helpers/validate.js";
 
 const nameArg = Argument.string("name").pipe(
@@ -26,7 +26,10 @@ export const trunk = Command.make("trunk", { name: nameArg, json: jsonFlag }).pi
         yield* validateBranchName(name.value);
         const exists = yield* git.branchExists(name.value);
         if (!exists) {
-          return yield* new StackError({ message: `Branch "${name.value}" does not exist` });
+          return yield* new StackError({
+            code: ErrorCode.BRANCH_NOT_FOUND,
+            message: `Branch "${name.value}" does not exist`,
+          });
         }
         yield* stacks.setTrunk(name.value);
         if (json) {

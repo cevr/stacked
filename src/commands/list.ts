@@ -3,7 +3,7 @@ import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { GitHubService } from "../services/GitHub.js";
 import { StackService } from "../services/Stack.js";
-import { StackError } from "../errors/index.js";
+import { ErrorCode, StackError } from "../errors/index.js";
 import { stdout } from "../ui.js";
 
 const stackNameArg = Argument.string("stack").pipe(
@@ -34,7 +34,10 @@ export const list = Command.make("list", { stackName: stackNameArg, json: jsonFl
       if (Option.isSome(stackName)) {
         const s = data.stacks[stackName.value];
         if (s === undefined) {
-          return yield* new StackError({ message: `Stack "${stackName.value}" not found` });
+          return yield* new StackError({
+            code: ErrorCode.STACK_NOT_FOUND,
+            message: `Stack "${stackName.value}" not found`,
+          });
         }
         targetStackName = stackName.value;
         targetStack = s;
@@ -48,6 +51,7 @@ export const list = Command.make("list", { stackName: stackNameArg, json: jsonFl
 
       if (targetStackName === null || targetStack === null) {
         return yield* new StackError({
+          code: ErrorCode.NOT_IN_STACK,
           message:
             "Not on a stacked branch. Run 'stacked list' to see your stacks, or 'stacked create <name>' to start one.",
         });

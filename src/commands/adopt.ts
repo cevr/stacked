@@ -2,7 +2,7 @@ import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
-import { StackError } from "../errors/index.js";
+import { ErrorCode, StackError } from "../errors/index.js";
 import { validateBranchName } from "./helpers/validate.js";
 import { dim } from "../ui.js";
 
@@ -37,18 +37,23 @@ export const adopt = Command.make("adopt", {
       const trunk = yield* stacks.getTrunk();
       if (branch === trunk) {
         return yield* new StackError({
+          code: ErrorCode.TRUNK_ERROR,
           message: `Cannot adopt trunk branch "${trunk}" into a stack`,
         });
       }
 
       const exists = yield* git.branchExists(branch);
       if (!exists) {
-        return yield* new StackError({ message: `Branch "${branch}" does not exist` });
+        return yield* new StackError({
+          code: ErrorCode.BRANCH_NOT_FOUND,
+          message: `Branch "${branch}" does not exist`,
+        });
       }
 
       const alreadyTracked = yield* stacks.findBranchStack(branch);
       if (alreadyTracked !== null) {
         return yield* new StackError({
+          code: ErrorCode.BRANCH_EXISTS,
           message: `Branch "${branch}" is already tracked in stack "${alreadyTracked.name}"`,
         });
       }

@@ -2,7 +2,7 @@ import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
-import { StackError } from "../errors/index.js";
+import { ErrorCode, StackError } from "../errors/index.js";
 import { validateBranchName } from "./helpers/validate.js";
 
 const nameArg = Argument.string("name").pipe(Argument.withDescription("Branch name to create"));
@@ -39,6 +39,7 @@ export const create = Command.make("create", {
 
       if (name === trunk) {
         return yield* new StackError({
+          code: ErrorCode.TRUNK_ERROR,
           message: `Cannot create a branch with the same name as trunk ("${trunk}")`,
         });
       }
@@ -47,6 +48,7 @@ export const create = Command.make("create", {
         const fromExists = yield* git.branchExists(from.value);
         if (!fromExists) {
           return yield* new StackError({
+            code: ErrorCode.BRANCH_NOT_FOUND,
             message: `Branch "${from.value}" does not exist`,
           });
         }
@@ -54,7 +56,10 @@ export const create = Command.make("create", {
 
       const branchAlreadyExists = yield* git.branchExists(name);
       if (branchAlreadyExists) {
-        return yield* new StackError({ message: `Branch "${name}" already exists` });
+        return yield* new StackError({
+          code: ErrorCode.BRANCH_EXISTS,
+          message: `Branch "${name}" already exists`,
+        });
       }
 
       const existing = yield* stacks.findBranchStack(baseBranch);

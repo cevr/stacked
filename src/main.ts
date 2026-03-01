@@ -45,11 +45,25 @@ const ServiceLayer = StackService.layer.pipe(
 
 const AppLayer = Layer.mergeAll(ServiceLayer, BunServices.layer);
 
-const handleKnownError = (message: string) =>
-  Console.error(message).pipe(
+// Usage errors (bad args, invalid state) → exit 2
+// Operational errors (git/gh failures) → exit 1
+const usageCodes = new Set([
+  "INVALID_BRANCH_NAME",
+  "BRANCH_EXISTS",
+  "NOT_IN_STACK",
+  "STACK_NOT_FOUND",
+  "STACK_EMPTY",
+  "ALREADY_AT_TOP",
+  "ALREADY_AT_BOTTOM",
+  "TRUNK_ERROR",
+  "STACK_EXISTS",
+]);
+
+const handleKnownError = (e: { message: string; code?: string | undefined }) =>
+  Console.error(e.code !== undefined ? `Error [${e.code}]: ${e.message}` : e.message).pipe(
     Effect.andThen(
       Effect.sync(() => {
-        process.exitCode = 1;
+        process.exitCode = e.code !== undefined && usageCodes.has(e.code) ? 2 : 1;
       }),
     ),
   );
@@ -60,16 +74,16 @@ BunRuntime.runMain(
     Effect.provideService(OutputConfig, { verbose: isVerbose, quiet: isQuiet, yes: isYes }),
     Effect.provide(AppLayer),
     Effect.catchTags({
-      GitError: (e) => handleKnownError(e.message),
-      StackError: (e) => handleKnownError(e.message),
-      GitHubError: (e) => handleKnownError(e.message),
+      GitError: (e) => handleKnownError(e),
+      StackError: (e) => handleKnownError(e),
+      GitHubError: (e) => handleKnownError(e),
     }),
     Effect.catch((e) => {
       const msg =
         e !== null && typeof e === "object" && "message" in e
           ? String(e.message)
           : JSON.stringify(e, null, 2);
-      return handleKnownError(`Unexpected error: ${msg}`);
+      return handleKnownError({ message: `Unexpected error: ${msg}` });
     }),
   ),
 );

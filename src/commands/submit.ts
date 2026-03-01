@@ -3,7 +3,7 @@ import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { GitHubService } from "../services/GitHub.js";
-import { StackError } from "../errors/index.js";
+import { ErrorCode, StackError } from "../errors/index.js";
 import { withSpinner, success } from "../ui.js";
 
 const draftFlag = Flag.boolean("draft").pipe(
@@ -139,6 +139,7 @@ export const submit = Command.make("submit", {
       const ghInstalled = yield* gh.isGhInstalled();
       if (!ghInstalled) {
         return yield* new StackError({
+          code: ErrorCode.GH_NOT_INSTALLED,
           message: "gh CLI is not installed. Install it from https://cli.github.com",
         });
       }
@@ -146,6 +147,7 @@ export const submit = Command.make("submit", {
       const result = yield* stacks.currentStack();
       if (result === null) {
         return yield* new StackError({
+          code: ErrorCode.NOT_IN_STACK,
           message:
             "Not on a stacked branch. Run 'stacked list' to see your stacks, or 'stacked create <name>' to start one.",
         });

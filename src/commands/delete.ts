@@ -2,7 +2,7 @@ import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
-import { StackError } from "../errors/index.js";
+import { ErrorCode, StackError } from "../errors/index.js";
 import { confirm } from "../ui.js";
 
 const nameArg = Argument.string("name").pipe(Argument.withDescription("Branch name to delete"));
@@ -36,7 +36,10 @@ export const deleteCmd = Command.make("delete", {
 
       const result = yield* stacks.findBranchStack(name);
       if (result === null) {
-        return yield* new StackError({ message: `Branch "${name}" not found in any stack` });
+        return yield* new StackError({
+          code: ErrorCode.BRANCH_NOT_FOUND,
+          message: `Branch "${name}" not found in any stack`,
+        });
       }
       const { name: stackName, stack } = result;
       const idx = stack.branches.indexOf(name);
@@ -59,6 +62,7 @@ export const deleteCmd = Command.make("delete", {
         const clean = yield* git.isClean();
         if (!clean) {
           return yield* new StackError({
+            code: ErrorCode.DIRTY_WORKTREE,
             message:
               "Working tree has uncommitted changes. Commit or stash before deleting the current branch.",
           });

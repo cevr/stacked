@@ -3,7 +3,7 @@ import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { GitHubService } from "../services/GitHub.js";
 import { StackService } from "../services/Stack.js";
-import { StackError } from "../errors/index.js";
+import { ErrorCode, StackError } from "../errors/index.js";
 import { success, warn, dim, confirm } from "../ui.js";
 
 const dryRunFlag = Flag.boolean("dry-run").pipe(
@@ -26,6 +26,7 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
       const ghInstalled = yield* gh.isGhInstalled();
       if (!ghInstalled) {
         return yield* new StackError({
+          code: ErrorCode.GH_NOT_INSTALLED,
           message: "gh CLI is not installed. Install it from https://cli.github.com",
         });
       }

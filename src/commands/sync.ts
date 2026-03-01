@@ -2,7 +2,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
-import { StackError } from "../errors/index.js";
+import { ErrorCode, StackError } from "../errors/index.js";
 import { withSpinner, success, warn } from "../ui.js";
 
 const trunkFlag = Flag.string("trunk").pipe(
@@ -33,6 +33,7 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
       const clean = yield* git.isClean();
       if (!clean) {
         return yield* new StackError({
+          code: ErrorCode.DIRTY_WORKTREE,
           message: "Working tree has uncommitted changes. Commit or stash before syncing.",
         });
       }
@@ -42,6 +43,7 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
       const result = yield* stacks.currentStack();
       if (result === null) {
         return yield* new StackError({
+          code: ErrorCode.NOT_IN_STACK,
           message:
             "Not on a stacked branch. Run 'stacked list' to see your stacks, or 'stacked create <name>' to start one.",
         });
@@ -55,6 +57,7 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
         const idx = branches.indexOf(fromBranch);
         if (idx === -1) {
           return yield* new StackError({
+            code: ErrorCode.BRANCH_NOT_FOUND,
             message: `Branch "${fromBranch}" not found in stack`,
           });
         }
@@ -86,6 +89,7 @@ export const sync = Command.make("sync", { trunk: trunkFlag, from: fromFlag }).p
                 i === 0 ? "stacked sync" : `stacked sync --from ${branches[i - 1] ?? trunk}`;
               return Effect.fail(
                 new StackError({
+                  code: ErrorCode.REBASE_CONFLICT,
                   message: `Rebase conflict on ${branch}: ${e.message}\n\nResolve conflicts, then run:\n  git rebase --continue\n  ${hint}`,
                 }),
               );

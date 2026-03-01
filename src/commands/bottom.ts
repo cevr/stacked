@@ -2,7 +2,7 @@ import { Command } from "effect/unstable/cli";
 import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
-import { StackError } from "../errors/index.js";
+import { ErrorCode, StackError } from "../errors/index.js";
 
 export const bottom = Command.make("bottom").pipe(
   Command.withDescription("Checkout bottom branch of stack"),
@@ -17,6 +17,7 @@ export const bottom = Command.make("bottom").pipe(
       const result = yield* stacks.currentStack();
       if (result === null) {
         return yield* new StackError({
+          code: ErrorCode.NOT_IN_STACK,
           message:
             "Not on a stacked branch. Run 'stacked list' to see your stacks, or 'stacked create <name>' to start one.",
         });
@@ -25,6 +26,7 @@ export const bottom = Command.make("bottom").pipe(
       const bottomBranch = result.stack.branches[0];
       if (bottomBranch === undefined) {
         return yield* new StackError({
+          code: ErrorCode.STACK_EMPTY,
           message: "Stack is empty. Run 'stacked create <name>' to add a branch.",
         });
       }
