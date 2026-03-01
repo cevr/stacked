@@ -30,26 +30,26 @@ What do you need?
 
 ## Quick Reference
 
-| Command                   | What it does                                                            |
-| ------------------------- | ----------------------------------------------------------------------- |
-| `stacked trunk [name]`    | Get/set trunk branch (auto-detected on first use)                       |
-| `stacked create <name>`   | Create branch on top of current (`--from`, `--json`)                    |
-| `stacked list [stack]`    | Show stack branches (`--json`)                                          |
-| `stacked stacks`          | List all stacks in the repo (`--json`)                                  |
-| `stacked status`          | Show current branch, stack position, working tree state                 |
-| `stacked checkout <name>` | Switch to branch (falls through to git for non-stacked branches)        |
-| `stacked up`              | Move up one branch in the stack                                         |
-| `stacked down`            | Move down one branch in the stack                                       |
-| `stacked top`             | Jump to top of stack                                                    |
-| `stacked bottom`          | Jump to bottom of stack                                                 |
-| `stacked sync`            | Fetch + rebase stack on trunk (`--from` to start from a branch)         |
-| `stacked detect`          | Detect branch chains and register as stacks (`--dry-run`, `--json`)     |
-| `stacked clean`           | Remove merged branches + remote branches (`--dry-run`, `--json`)        |
-| `stacked delete <name>`   | Remove branch from stack + git + remote (`--keep-remote`, `--json`)     |
-| `stacked submit`          | Push all + create/update PRs (`--title`, `--body`, `--draft`, `--json`) |
-| `stacked adopt <branch>`  | Add existing git branch into the stack (`--after`, `--json`)            |
-| `stacked log`             | Show commits grouped by branch (`--json`)                               |
-| `stacked init`            | Install the stacked Claude skill to ~/.claude/skills                    |
+| Command                   | What it does                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| `stacked trunk [name]`    | Get/set trunk branch (`--json`)                                                |
+| `stacked create <name>`   | Create branch on top of current (`--from`, `--json`)                           |
+| `stacked list [stack]`    | Show stack branches (`--json`)                                                 |
+| `stacked stacks`          | List all stacks in the repo (`--json`)                                         |
+| `stacked status`          | Show current branch, stack position, working tree state (`--json`)             |
+| `stacked checkout <name>` | Switch to branch (falls through to git for non-stacked branches)               |
+| `stacked up`              | Move up one branch in the stack                                                |
+| `stacked down`            | Move down one branch in the stack                                              |
+| `stacked top`             | Jump to top of stack                                                           |
+| `stacked bottom`          | Jump to bottom of stack                                                        |
+| `stacked sync`            | Fetch + rebase stack on trunk (`--from` to start from a branch)                |
+| `stacked detect`          | Detect branch chains and register as stacks (`--dry-run`, `--json`)            |
+| `stacked clean`           | Remove merged branches + remote branches (`--dry-run`, `--json`)               |
+| `stacked delete <name>`   | Remove branch from stack + git + remote (`--keep-remote`, `--force`, `--json`) |
+| `stacked submit`          | Push + create/update PRs (`--title`, `--body`, `--only`, `--draft`, `--json`)  |
+| `stacked adopt <branch>`  | Add existing git branch into the stack (`--after`, `--json`)                   |
+| `stacked log`             | Show commits grouped by branch (`--json`)                                      |
+| `stacked init`            | Install the stacked Claude skill to ~/.claude/skills                           |
 
 ### Global Flags
 
@@ -58,6 +58,7 @@ What do you need?
 | `--verbose`    | Enable debug output           |
 | `--quiet`/`-q` | Suppress non-essential output |
 | `--no-color`   | Disable colored output        |
+| `--yes`/`-y`   | Skip confirmation prompts     |
 
 ## Setup
 
@@ -113,6 +114,9 @@ stacked status
 # Branch: feat-auth-ui
 # Working tree: clean
 # Stack: feat-auth (2 of 3)
+
+stacked status --json
+# { "branch": "feat-auth-ui", "clean": true, "stack": { "name": "feat-auth", "position": 2, "total": 3 } }
 ```
 
 ## Navigation
@@ -154,6 +158,8 @@ Push all stack branches and create/update GitHub PRs with correct base branches:
 stacked submit                                        # push + create/update PRs
 stacked submit --draft                                # create as draft PRs
 stacked submit --title "Add auth" --body "OAuth2"     # with title and body
+stacked submit --title "Auth,Validation,Tests"        # per-branch titles (comma-delimited)
+stacked submit --only                                 # process only the current branch
 stacked submit --no-force                             # disable force-push
 stacked submit --dry-run                              # show what would happen
 stacked submit --json                                 # structured JSON output
@@ -191,9 +197,10 @@ Only linear chains are detected. Forked branches (one parent with multiple child
 After PRs are merged on GitHub, clean up the local and remote branches and stack metadata:
 
 ```sh
-stacked clean              # removes all merged branches from all stacks
+stacked clean              # removes all merged branches (prompts for confirmation)
 stacked clean --dry-run    # preview what would be removed
 stacked clean --json       # structured JSON output
+stacked clean --yes        # skip confirmation prompt
 ```
 
 `clean` also deletes the corresponding remote branches. `list` shows merge status per branch (`[merged]`, `[closed]`, `[#N]` for open PRs). After cleaning, run `stacked sync` to rebase remaining branches.
