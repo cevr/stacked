@@ -152,7 +152,10 @@ export const submit = Command.make("submit", {
       const userBody = Option.isSome(bodyOpt) ? bodyOpt.value : undefined;
 
       const results: SubmitResult[] = [];
-      const prMap = new Map<string, { number: number; url: string; state: string } | null>();
+      const prMap = new Map<
+        string,
+        { number: number; url: string; state: string; body?: string | null } | null
+      >();
 
       for (let i = 0; i < branches.length; i++) {
         const branch = branches[i];
@@ -223,7 +226,9 @@ export const submit = Command.make("submit", {
         if (entry === undefined || entry.action === "created") continue;
 
         const metadata = generateStackMetadata(branches, prMap, i, result.name);
-        const body = updatePRBody(undefined, userBody, metadata);
+        const existingPrData = prMap.get(branch) ?? null;
+        const existingBody = existingPrData?.body ?? undefined;
+        const body = updatePRBody(existingBody, userBody, metadata);
         yield* gh.updatePR({ branch, body });
       }
 

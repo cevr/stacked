@@ -6,6 +6,7 @@ const GhPrResponse = Schema.Struct({
   url: Schema.String,
   state: Schema.String,
   baseRefName: Schema.String,
+  body: Schema.NullOr(Schema.String),
 });
 
 export class GitHubService extends ServiceMap.Service<
@@ -27,7 +28,7 @@ export class GitHubService extends ServiceMap.Service<
     readonly getPR: (
       branch: string,
     ) => Effect.Effect<
-      { number: number; url: string; state: string; base: string } | null,
+      { number: number; url: string; state: string; base: string; body: string | null } | null,
       GitHubError
     >;
     readonly isGhInstalled: () => Effect.Effect<boolean>;
@@ -114,7 +115,7 @@ export class GitHubService extends ServiceMap.Service<
           "view",
           branch,
           "--json",
-          "number,url,state,baseRefName",
+          "number,url,state,baseRefName,body",
         ]).pipe(Effect.catchTag("GitHubError", () => Effect.succeed(null)));
 
         if (result === null) return null;
@@ -127,6 +128,7 @@ export class GitHubService extends ServiceMap.Service<
           url: data.url,
           state: data.state,
           base: data.baseRefName,
+          body: data.body,
         };
       }),
 

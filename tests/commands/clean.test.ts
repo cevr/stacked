@@ -23,12 +23,14 @@ describe("clean command logic", () => {
           url: "https://github.com/test/repo/pull/1",
           state: "MERGED" as const,
           base: "main",
+          body: null,
         })
       : Effect.succeed({
           number: 2,
           url: "https://github.com/test/repo/pull/2",
           state: "OPEN" as const,
           base: "main",
+          body: null,
         });
 
   it.effect("removes contiguously merged branches from bottom", () =>
