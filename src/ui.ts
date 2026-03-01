@@ -1,5 +1,5 @@
 import pc from "picocolors";
-import { Effect } from "effect";
+import { Effect, ServiceMap } from "effect";
 
 // ============================================================================
 // TTY & Color Detection
@@ -7,14 +7,32 @@ import { Effect } from "effect";
 
 const isTTY = process.stderr.isTTY === true;
 
-const colorEnabled = (() => {
-  if (process.env["NO_COLOR"] !== undefined) return false;
-  if (process.env["FORCE_COLOR"] !== undefined) return true;
-  if (process.env["TERM"] === "dumb") return false;
-  return isTTY;
-})();
+// Lazy color instance — deferred so --no-color flag can set env before first use
+let _c: ReturnType<typeof pc.createColors> | null = null;
+const getColors = () => {
+  if (_c !== null) return _c;
+  const enabled = (() => {
+    if (process.env["NO_COLOR"] !== undefined) return false;
+    if (process.env["FORCE_COLOR"] !== undefined) return true;
+    if (process.env["TERM"] === "dumb") return false;
+    return isTTY;
+  })();
+  _c = enabled ? pc : pc.createColors(false);
+  return _c;
+};
 
-const c = colorEnabled ? pc : pc.createColors(false);
+// ============================================================================
+// Output Config (verbose/quiet, set by global flags)
+// ============================================================================
+
+export interface OutputConfig {
+  readonly verbose: boolean;
+  readonly quiet: boolean;
+}
+
+export const OutputConfig = ServiceMap.Reference("@cvr/stacked/OutputConfig", {
+  defaultValue: (): OutputConfig => ({ verbose: false, quiet: false }),
+});
 
 // ============================================================================
 // Styled Output (all write to stderr)
@@ -25,10 +43,35 @@ const write = (msg: string) =>
     process.stderr.write(msg + "\n");
   });
 
-export const success = (msg: string) => write(c.green(`✓ ${msg}`));
-export const warn = (msg: string) => write(c.yellow(`⚠ ${msg}`));
-export const info = (msg: string) => write(c.cyan(msg));
-export const error = (msg: string) => write(c.red(msg));
+export const success = (msg: string) =>
+  Effect.gen(function* () {
+    const config = yield* OutputConfig;
+    if (config.quiet) return;
+    yield* write(getColors().green(`✓ ${msg}`));
+  });
+
+export const warn = (msg: string) =>
+  Effect.gen(function* () {
+    const config = yield* OutputConfig;
+    if (config.quiet) return;
+    yield* write(getColors().yellow(`⚠ ${msg}`));
+  });
+
+export const info = (msg: string) =>
+  Effect.gen(function* () {
+    const config = yield* OutputConfig;
+    if (config.quiet) return;
+    yield* write(getColors().cyan(msg));
+  });
+
+export const error = (msg: string) => write(getColors().red(msg));
+
+export const verbose = (msg: string) =>
+  Effect.gen(function* () {
+    const config = yield* OutputConfig;
+    if (!config.verbose) return;
+    yield* write(getColors().dim(msg));
+  });
 
 // ============================================================================
 // Spinner
@@ -45,6 +88,7 @@ export const withSpinner = <A, E, R>(
   }
 
   return Effect.gen(function* () {
+    const c = getColors();
     let frame = 0;
     const interval = setInterval(() => {
       const spinner = SPINNER_FRAMES[frame % SPINNER_FRAMES.length];
@@ -69,10 +113,10 @@ export const withSpinner = <A, E, R>(
 // Color Helpers (for tree views, status badges, etc.)
 // ============================================================================
 
-export const dim = (s: string) => c.dim(s);
-export const bold = (s: string) => c.bold(s);
-export const green = (s: string) => c.green(s);
-export const yellow = (s: string) => c.yellow(s);
-export const cyan = (s: string) => c.cyan(s);
-export const red = (s: string) => c.red(s);
-export const magenta = (s: string) => c.magenta(s);
+export const dim = (s: string) => getColors().dim(s);
+export const bold = (s: string) => getColors().bold(s);
+export const green = (s: string) => getColors().green(s);
+export const yellow = (s: string) => getColors().yellow(s);
+export const cyan = (s: string) => getColors().cyan(s);
+export const red = (s: string) => getColors().red(s);
+export const magenta = (s: string) => getColors().magenta(s);
