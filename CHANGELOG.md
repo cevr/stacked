@@ -1,5 +1,26 @@
 # @cvr/stacked
 
+## 0.4.1
+
+### Patch Changes
+
+- [`58ed4ff`](https://github.com/cevr/stacked/commit/58ed4ff7e304cebf2d4a12780e2f2dcb3725b13b) Thanks [@cevr](https://github.com/cevr)! - `stacked sync` now force-pushes each branch after a successful rebase (using `--force-with-lease`) so rebased branch tips are immediately reflected on remote and stacked PRs stay in sync without a separate submit/push step.
+
+- [`02c916b`](https://github.com/cevr/stacked/commit/02c916b9dc3bb09d9c3f3de8c61dad660a602469) Thanks [@cevr](https://github.com/cevr)! - Fix critical CLI and stacked workflow correctness issues.
+  - Stop command execution when conflicting global flags are passed (`--verbose` with `--quiet`) and exit with code `2`.
+  - Ensure `submit` refreshes stack metadata for PRs created in the same run, so links are complete without a second submit.
+  - Add machine-readable output for `submit --dry-run --json` with `would-*` actions.
+  - Validate `amend --from` before mutating commit history.
+  - Treat reorder operations that target the same branch as explicit no-ops.
+  - Upgrade to Effect beta `4.0.0-beta.27` and align `@effect/platform-bun`.
+
+- [`7bcaefb`](https://github.com/cevr/stacked/commit/7bcaefb4030e7bbe298afe7e8131c3ad04bb8039) Thanks [@cevr](https://github.com/cevr)! - Improve `detect` performance and configuration handling.
+  - Prevent `stacked detect` from hanging on very large repositories by limiting ancestry analysis to a bounded number of untracked branches.
+  - Add `STACKED_DETECT_MAX_BRANCHES` (default `200`) as an Effect `Config` value.
+  - Prefer most recently updated local branches during detection to keep bounded scans focused on active work.
+  - Migrate remaining env-based settings in `init` and UI color handling to Effect `Config` for consistency and testability.
+  - Make UI color helpers effectful and update command rendering paths accordingly.
+
 ## 0.4.0
 
 ### Minor Changes
