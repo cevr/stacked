@@ -23,18 +23,24 @@ describe("sync command logic", () => {
       yield* git.mergeBase("feat-a", "origin/main");
       yield* git.checkout("feat-a");
       yield* git.rebaseOnto("feat-a", "origin/main", "abc123");
+      yield* git.push("feat-a", { force: true });
       yield* git.mergeBase("feat-b", "feat-a");
       yield* git.checkout("feat-b");
       yield* git.rebaseOnto("feat-b", "feat-a", "abc123");
+      yield* git.push("feat-b", { force: true });
       yield* git.mergeBase("feat-c", "feat-b");
       yield* git.checkout("feat-c");
       yield* git.rebaseOnto("feat-c", "feat-b", "abc123");
+      yield* git.push("feat-c", { force: true });
 
       const calls = yield* recorder.calls;
       expectCall(calls, "Git", "fetch");
       expectCall(calls, "Git", "rebaseOnto", { branch: "feat-a", newBase: "origin/main" });
       expectCall(calls, "Git", "rebaseOnto", { branch: "feat-b", newBase: "feat-a" });
       expectCall(calls, "Git", "rebaseOnto", { branch: "feat-c", newBase: "feat-b" });
+      expectCall(calls, "Git", "push", { branch: "feat-a", force: true });
+      expectCall(calls, "Git", "push", { branch: "feat-b", force: true });
+      expectCall(calls, "Git", "push", { branch: "feat-c", force: true });
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -55,6 +61,7 @@ describe("sync command logic", () => {
       yield* git.mergeBase("feat-a", "origin/main");
       yield* git.checkout("feat-a");
       yield* git.rebaseOnto("feat-a", "origin/main", "abc123");
+      yield* git.push("feat-a", { force: true });
 
       const calls = yield* recorder.calls;
       // rebaseAbort should NOT be called in the new implementation
@@ -80,9 +87,11 @@ describe("sync command logic", () => {
       yield* git.mergeBase("feat-b", "feat-a");
       yield* git.checkout("feat-b");
       yield* git.rebaseOnto("feat-b", "feat-a", "abc123");
+      yield* git.push("feat-b", { force: true });
       yield* git.mergeBase("feat-c", "feat-b");
       yield* git.checkout("feat-c");
       yield* git.rebaseOnto("feat-c", "feat-b", "abc123");
+      yield* git.push("feat-c", { force: true });
 
       const calls = yield* recorder.calls;
       expectCall(calls, "Git", "fetch");
@@ -91,6 +100,8 @@ describe("sync command logic", () => {
       expect(rebaseCalls).toHaveLength(2);
       expectCall(calls, "Git", "rebaseOnto", { branch: "feat-b", newBase: "feat-a" });
       expectCall(calls, "Git", "rebaseOnto", { branch: "feat-c", newBase: "feat-b" });
+      expectCall(calls, "Git", "push", { branch: "feat-b", force: true });
+      expectCall(calls, "Git", "push", { branch: "feat-c", force: true });
     }).pipe(
       Effect.provide(
         createTestLayer({

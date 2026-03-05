@@ -32,7 +32,9 @@ export const sync = Command.make("sync", {
   json: jsonFlag,
   dryRun: dryRunFlag,
 }).pipe(
-  Command.withDescription("Fetch and rebase stack on trunk. Use --from to start from a branch."),
+  Command.withDescription(
+    "Fetch, rebase, and force-push stack branches. Use --from to start from a branch.",
+  ),
   Command.withExamples([
     { command: "stacked sync", description: "Rebase entire stack on trunk" },
     { command: "stacked sync --from feat-auth", description: "Resume from a specific branch" },
@@ -93,7 +95,7 @@ export const sync = Command.make("sync", {
           const base = i === 0 ? `origin/${trunk}` : (branches[i - 1] ?? `origin/${trunk}`);
           results.push({ name: branch, action: "skipped", base });
           if (!json) {
-            yield* Console.error(`Would rebase ${branch} onto ${base}`);
+            yield* Console.error(`Would rebase and force-push ${branch} onto ${base}`);
           }
         }
 
@@ -137,6 +139,7 @@ export const sync = Command.make("sync", {
               );
             }),
           );
+          yield* withSpinner(`Pushing ${branch}`, git.push(branch, { force: true }));
           results.push({ name: branch, action: "rebased", base: newBase });
         }
       }).pipe(
