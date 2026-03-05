@@ -36,7 +36,7 @@ export const sync = Command.make("sync", {
     "Fetch, rebase, and force-push stack branches. Use --from to start from a branch.",
   ),
   Command.withExamples([
-    { command: "stacked sync", description: "Rebase entire stack on trunk" },
+    { command: "stacked sync", description: "Sync local trunk, then rebase entire stack on trunk" },
     { command: "stacked sync --from feat-auth", description: "Resume from a specific branch" },
     { command: "stacked sync --dry-run", description: "Preview rebase plan" },
   ]),
@@ -46,6 +46,7 @@ export const sync = Command.make("sync", {
       const stacks = yield* StackService;
 
       const trunk = Option.isSome(trunkOpt) ? trunkOpt.value : yield* stacks.getTrunk();
+      const originTrunk = `origin/${trunk}`;
       const currentBranch = yield* git.currentBranch();
 
       if (!dryRun) {
@@ -89,10 +90,15 @@ export const sync = Command.make("sync", {
       const results: SyncResult[] = [];
 
       if (dryRun) {
+        results.push({ name: trunk, action: "skipped", base: originTrunk });
+        if (!json) {
+          yield* Console.error(`Would fetch and rebase ${trunk} onto ${originTrunk}`);
+        }
+
         for (let i = startIdx; i < branches.length; i++) {
           const branch = branches[i];
           if (branch === undefined) continue;
-          const base = i === 0 ? `origin/${trunk}` : (branches[i - 1] ?? `origin/${trunk}`);
+          const base = i === 0 ? originTrunk : (branches[i - 1] ?? originTrunk);
           results.push({ name: branch, action: "skipped", base });
           if (!json) {
             yield* Console.error(`Would rebase and force-push ${branch} onto ${base}`);
@@ -111,12 +117,24 @@ export const sync = Command.make("sync", {
       }
 
       yield* withSpinner(`Fetching ${trunk}`, git.fetch());
+      yield* git.checkout(trunk);
+      yield* withSpinner(`Rebasing ${trunk} onto ${originTrunk}`, git.rebase(originTrunk)).pipe(
+        Effect.catchTag("GitError", (e) =>
+          Effect.fail(
+            new StackError({
+              code: ErrorCode.REBASE_CONFLICT,
+              message: `Rebase conflict on ${trunk}: ${e.message}\n\nResolve conflicts, then run:\n  git rebase --continue`,
+            }),
+          ),
+        ),
+      );
+      results.push({ name: trunk, action: "rebased", base: originTrunk });
 
       yield* Effect.gen(function* () {
         for (let i = startIdx; i < branches.length; i++) {
           const branch = branches[i];
           if (branch === undefined) continue;
-          const newBase = i === 0 ? `origin/${trunk}` : (branches[i - 1] ?? `origin/${trunk}`);
+          const newBase = i === 0 ? originTrunk : (branches[i - 1] ?? originTrunk);
 
           // Compute old base (merge-base of this branch and its parent) before rebasing
           const oldBase = yield* git
@@ -158,7 +176,7 @@ export const sync = Command.make("sync", {
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
         yield* Console.log(JSON.stringify({ branches: results }, null, 2));
       } else {
-        yield* success("Stack synced");
+        yield* success(`Stack synced (including trunk ${trunk})`);
       }
     }),
   ),
