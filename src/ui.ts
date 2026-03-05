@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
 import pc from "picocolors";
-import { Effect, ServiceMap } from "effect";
+import { Config, Effect, ServiceMap } from "effect";
 
 // ============================================================================
 // TTY & Color Detection
@@ -13,24 +13,43 @@ const stdoutIsTTY = process.stdout.isTTY === true;
 let _stderrColors: ReturnType<typeof pc.createColors> | null = null;
 let _stdoutColors: ReturnType<typeof pc.createColors> | null = null;
 
-const isColorEnabled = (isTTY: boolean) => {
-  if (process.env["NO_COLOR"] !== undefined) return false;
-  if (process.env["FORCE_COLOR"] !== undefined) return true;
-  if (process.env["TERM"] === "dumb") return false;
+const colorRuntimeConfig = Config.all({
+  noColor: Config.string("NO_COLOR").pipe(
+    Config.map(() => true),
+    Config.orElse(() => Config.succeed(false)),
+  ),
+  forceColor: Config.string("FORCE_COLOR").pipe(
+    Config.map(() => true),
+    Config.orElse(() => Config.succeed(false)),
+  ),
+  term: Config.string("TERM").pipe(Config.withDefault("")),
+});
+
+const isColorEnabled = Effect.fn("ui.isColorEnabled")(function* (isTTY: boolean) {
+  const runtime = yield* colorRuntimeConfig;
+  if (runtime.noColor) return false;
+  if (runtime.forceColor) return true;
+  if (runtime.term === "dumb") return false;
   return isTTY;
-};
+});
 
-const getColors = () => {
+const getColors = Effect.fn("ui.getColors")(function* () {
   if (_stderrColors !== null) return _stderrColors;
-  _stderrColors = isColorEnabled(stderrIsTTY) ? pc : pc.createColors(false);
+  const enabled = yield* isColorEnabled(stderrIsTTY).pipe(
+    Effect.catchTag("ConfigError", () => Effect.succeed(false)),
+  );
+  _stderrColors = enabled ? pc : pc.createColors(false);
   return _stderrColors;
-};
+});
 
-const getStdoutColors = () => {
+const getStdoutColors = Effect.fn("ui.getStdoutColors")(function* () {
   if (_stdoutColors !== null) return _stdoutColors;
-  _stdoutColors = isColorEnabled(stdoutIsTTY) ? pc : pc.createColors(false);
+  const enabled = yield* isColorEnabled(stdoutIsTTY).pipe(
+    Effect.catchTag("ConfigError", () => Effect.succeed(false)),
+  );
+  _stdoutColors = enabled ? pc : pc.createColors(false);
   return _stdoutColors;
-};
+});
 
 // ============================================================================
 // Output Config (verbose/quiet, set by global flags)
@@ -84,27 +103,34 @@ const write = (msg: string) =>
 export const success = Effect.fn("ui.success")(function* (msg: string) {
   const config = yield* OutputConfig;
   if (config.quiet) return;
-  yield* write(getColors().green(`✓ ${msg}`));
+  const colors = yield* getColors();
+  yield* write(colors.green(`✓ ${msg}`));
 });
 
 export const warn = Effect.fn("ui.warn")(function* (msg: string) {
   const config = yield* OutputConfig;
   if (config.quiet) return;
-  yield* write(getColors().yellow(`⚠ ${msg}`));
+  const colors = yield* getColors();
+  yield* write(colors.yellow(`⚠ ${msg}`));
 });
 
 export const info = Effect.fn("ui.info")(function* (msg: string) {
   const config = yield* OutputConfig;
   if (config.quiet) return;
-  yield* write(getColors().cyan(msg));
+  const colors = yield* getColors();
+  yield* write(colors.cyan(msg));
 });
 
-export const error = (msg: string) => write(getColors().red(msg));
+export const error = Effect.fn("ui.error")(function* (msg: string) {
+  const colors = yield* getColors();
+  yield* write(colors.red(msg));
+});
 
 export const verbose = Effect.fn("ui.verbose")(function* (msg: string) {
   const config = yield* OutputConfig;
   if (!config.verbose) return;
-  yield* write(getColors().dim(msg));
+  const colors = yield* getColors();
+  yield* write(colors.dim(msg));
 });
 
 // ============================================================================
@@ -122,7 +148,7 @@ export const withSpinner = <A, E, R>(
   }
 
   return Effect.gen(function* () {
-    const c = getColors();
+    const c = yield* getColors();
     let frame = 0;
     const interval = setInterval(() => {
       const spinner = SPINNER_FRAMES[frame % SPINNER_FRAMES.length];
@@ -150,24 +176,72 @@ export const withSpinner = <A, E, R>(
 // Color Helpers — stderr (for tree views, status badges, etc.)
 // ============================================================================
 
-export const dim = (s: string) => getColors().dim(s);
-export const bold = (s: string) => getColors().bold(s);
-export const green = (s: string) => getColors().green(s);
-export const yellow = (s: string) => getColors().yellow(s);
-export const cyan = (s: string) => getColors().cyan(s);
-export const red = (s: string) => getColors().red(s);
-export const magenta = (s: string) => getColors().magenta(s);
+export const dim = Effect.fn("ui.dim")(function* (s: string) {
+  const colors = yield* getColors();
+  return colors.dim(s);
+});
+
+export const bold = Effect.fn("ui.bold")(function* (s: string) {
+  const colors = yield* getColors();
+  return colors.bold(s);
+});
+
+export const green = Effect.fn("ui.green")(function* (s: string) {
+  const colors = yield* getColors();
+  return colors.green(s);
+});
+
+export const yellow = Effect.fn("ui.yellow")(function* (s: string) {
+  const colors = yield* getColors();
+  return colors.yellow(s);
+});
+
+export const cyan = Effect.fn("ui.cyan")(function* (s: string) {
+  const colors = yield* getColors();
+  return colors.cyan(s);
+});
+
+export const red = Effect.fn("ui.red")(function* (s: string) {
+  const colors = yield* getColors();
+  return colors.red(s);
+});
+
+export const magenta = Effect.fn("ui.magenta")(function* (s: string) {
+  const colors = yield* getColors();
+  return colors.magenta(s);
+});
 
 // ============================================================================
 // Color Helpers — stdout (for Console.log output that may be piped)
 // ============================================================================
 
 export const stdout = {
-  dim: (s: string) => getStdoutColors().dim(s),
-  bold: (s: string) => getStdoutColors().bold(s),
-  green: (s: string) => getStdoutColors().green(s),
-  yellow: (s: string) => getStdoutColors().yellow(s),
-  cyan: (s: string) => getStdoutColors().cyan(s),
-  red: (s: string) => getStdoutColors().red(s),
-  magenta: (s: string) => getStdoutColors().magenta(s),
+  dim: Effect.fn("ui.stdout.dim")(function* (s: string) {
+    const colors = yield* getStdoutColors();
+    return colors.dim(s);
+  }),
+  bold: Effect.fn("ui.stdout.bold")(function* (s: string) {
+    const colors = yield* getStdoutColors();
+    return colors.bold(s);
+  }),
+  green: Effect.fn("ui.stdout.green")(function* (s: string) {
+    const colors = yield* getStdoutColors();
+    return colors.green(s);
+  }),
+  yellow: Effect.fn("ui.stdout.yellow")(function* (s: string) {
+    const colors = yield* getStdoutColors();
+    return colors.yellow(s);
+  }),
+  cyan: Effect.fn("ui.stdout.cyan")(function* (s: string) {
+    const colors = yield* getStdoutColors();
+    return colors.cyan(s);
+  }),
+  red: Effect.fn("ui.stdout.red")(function* (s: string) {
+    const colors = yield* getStdoutColors();
+    return colors.red(s);
+  }),
+  magenta: Effect.fn("ui.stdout.magenta")(function* (s: string) {
+    const colors = yield* getStdoutColors();
+    return colors.magenta(s);
+  }),
 };

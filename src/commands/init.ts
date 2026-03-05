@@ -1,5 +1,5 @@
 import { Command } from "effect/unstable/cli";
-import { Console, Effect } from "effect";
+import { Config, Console, Effect } from "effect";
 import { StackError } from "../errors/index.js";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -18,7 +18,9 @@ export const init = Command.make("init").pipe(
         });
       }
 
-      const skillsDir = process.env["STACKED_SKILLS_DIR"] ?? join(homedir(), ".claude", "skills");
+      const skillsDir = yield* Config.string("STACKED_SKILLS_DIR").pipe(
+        Config.withDefault(join(homedir(), ".claude", "skills")),
+      );
       const targetDir = join(skillsDir, "stacked");
       const targetPath = join(targetDir, "SKILL.md");
 

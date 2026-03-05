@@ -3,6 +3,7 @@ import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { success, warn, info } from "../ui.js";
+import { detectLimitConfig, limitUntrackedBranches } from "./helpers/detect.js";
 
 const dryRunFlag = Flag.boolean("dry-run").pipe(
   Flag.withDescription("Show what would be detected without making changes"),
@@ -26,11 +27,19 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
 
       const data = yield* stacks.load();
       const alreadyTracked = new Set(Object.values(data.stacks).flatMap((s) => [...s.branches]));
-      const untracked = candidates.filter((b) => !alreadyTracked.has(b));
+      const untrackedAll = candidates.filter((b) => !alreadyTracked.has(b));
+      const detectLimit = yield* detectLimitConfig;
+      const { untracked, skipped } = limitUntrackedBranches(untrackedAll, detectLimit);
 
       if (untracked.length === 0) {
         yield* Console.error("No untracked branches found");
         return;
+      }
+
+      if (skipped > 0) {
+        yield* warn(
+          `Analyzing ${untracked.length}/${untrackedAll.length} untracked branches (set STACKED_DETECT_MAX_BRANCHES to adjust)`,
+        );
       }
 
       // Build parent map: for each branch, find its direct parent among other branches
@@ -75,15 +84,24 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
 
       // Build linear chains from trunk
       // Find branches whose parent is trunk (chain roots)
+      const childrenByParent = new Map<string, string[]>();
+      for (const branch of untracked) {
+        const parent = childOf.get(branch);
+        if (parent === undefined) continue;
+        const children = childrenByParent.get(parent) ?? [];
+        children.push(branch);
+        childrenByParent.set(parent, children);
+      }
+
       const chains: string[][] = [];
-      const roots = untracked.filter((b) => childOf.get(b) === trunk);
+      const roots = childrenByParent.get(trunk) ?? [];
 
       for (const root of roots) {
         const chain = [root];
         let current = root;
 
         while (true) {
-          const children = untracked.filter((b) => childOf.get(b) === current);
+          const children = childrenByParent.get(current) ?? [];
           const child = children[0];
           if (children.length === 1 && child !== undefined) {
             chain.push(child);
@@ -98,13 +116,10 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
       }
 
       // Report forks
-      const forkPoints = untracked.filter((b) => {
-        const children = untracked.filter((c) => childOf.get(c) === b);
-        return children.length > 1;
-      });
+      const forkPoints = untracked.filter((b) => (childrenByParent.get(b)?.length ?? 0) > 1);
       const forks = forkPoints.map((b) => ({
         branch: b,
-        children: untracked.filter((c) => childOf.get(c) === b),
+        children: childrenByParent.get(b) ?? [],
       }));
 
       if (json) {

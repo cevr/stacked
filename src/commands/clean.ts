@@ -79,7 +79,8 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
               `${skippedMerged.length} merged branch${skippedMerged.length === 1 ? "" : "es"} skipped (non-merged branches below):`,
             );
             for (const { branch, stackName } of skippedMerged) {
-              yield* Console.error(dim(`  ${branch} (${stackName})`));
+              const line = yield* dim(`  ${branch} (${stackName})`);
+              yield* Console.error(line);
             }
           }
         }
@@ -88,7 +89,8 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
 
       if (!dryRun) {
         for (const { branch } of toRemove) {
-          yield* Console.error(dim(`  ${branch}`));
+          const line = yield* dim(`  ${branch}`);
+          yield* Console.error(line);
         }
         const confirmed = yield* confirm(
           `Remove ${toRemove.length} merged branch${toRemove.length === 1 ? "" : "es"}?`,
@@ -146,16 +148,18 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
         yield* success(
           `Cleaned ${removed.length} merged branch${removed.length === 1 ? "" : "es"}`,
         );
-        yield* Console.error(
-          dim("Run 'stacked sync' then 'stacked submit' to rebase and retarget PRs."),
+        const hint = yield* dim(
+          "Run 'stacked sync' then 'stacked submit' to rebase and retarget PRs.",
         );
+        yield* Console.error(hint);
 
         if (skippedMerged.length > 0) {
           yield* warn(
             `${skippedMerged.length} merged branch${skippedMerged.length === 1 ? "" : "es"} skipped (non-merged branches below):`,
           );
           for (const { branch, stackName } of skippedMerged) {
-            yield* Console.error(dim(`  ${branch} (${stackName})`));
+            const line = yield* dim(`  ${branch} (${stackName})`);
+            yield* Console.error(line);
           }
         }
       }

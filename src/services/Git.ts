@@ -93,7 +93,12 @@ export class GitService extends ServiceMap.Service<
         ),
 
       listBranches: () =>
-        run(["branch", "--format=%(refname:short)"]).pipe(
+        run([
+          "for-each-ref",
+          "--sort=-committerdate",
+          "--format=%(refname:short)",
+          "refs/heads",
+        ]).pipe(
           Effect.map((output) =>
             output
               .split("\n")

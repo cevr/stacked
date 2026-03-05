@@ -1,8 +1,13 @@
 // @effect-diagnostics effect/strictEffectProvide:off
 import { describe, it, expect } from "effect-bun-test";
 import { test } from "bun:test";
-import { Effect } from "effect";
+import { ConfigProvider, Effect } from "effect";
 import { StackService } from "../../src/services/Stack.js";
+import {
+  DEFAULT_MAX_DETECT_BRANCHES,
+  detectLimitConfig,
+  limitUntrackedBranches,
+} from "../../src/commands/helpers/detect.js";
 import { createTestLayer } from "../helpers/test-cli.js";
 
 describe("detect command logic", () => {
@@ -192,4 +197,51 @@ describe("detect command logic", () => {
     });
     expect(forkPoints).toEqual(["feat-a"]);
   });
+
+  test("limits untracked branches and reports skipped count", () => {
+    const branches = ["a", "b", "c", "d"];
+    const { untracked, skipped } = limitUntrackedBranches(branches, 2);
+    expect(untracked).toEqual(["a", "b"]);
+    expect(skipped).toBe(2);
+  });
+
+  it.effect("uses default detect limit when env value is missing", () =>
+    Effect.gen(function* () {
+      const limit = yield* detectLimitConfig;
+      expect(limit).toBe(DEFAULT_MAX_DETECT_BRANCHES);
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({})))),
+  );
+
+  it.effect("uses default detect limit when env value is invalid", () =>
+    Effect.gen(function* () {
+      const limit = yield* detectLimitConfig;
+      expect(limit).toBe(DEFAULT_MAX_DETECT_BRANCHES);
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(ConfigProvider.fromUnknown({ STACKED_DETECT_MAX_BRANCHES: "abc" })),
+      ),
+    ),
+  );
+
+  it.effect("uses env override for detect limit when valid", () =>
+    Effect.gen(function* () {
+      const limit = yield* detectLimitConfig;
+      expect(limit).toBe(25);
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(ConfigProvider.fromUnknown({ STACKED_DETECT_MAX_BRANCHES: "25" })),
+      ),
+    ),
+  );
+
+  it.effect("treats non-positive env limit as default", () =>
+    Effect.gen(function* () {
+      const limit = yield* detectLimitConfig;
+      expect(limit).toBe(DEFAULT_MAX_DETECT_BRANCHES);
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(ConfigProvider.fromUnknown({ STACKED_DETECT_MAX_BRANCHES: "0" })),
+      ),
+    ),
+  );
 });

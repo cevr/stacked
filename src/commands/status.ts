@@ -36,17 +36,19 @@ export const status = Command.make("status", { json: jsonFlag }).pipe(
       }
 
       const lines: string[] = [];
-      lines.push(`Branch: ${stdout.bold(currentBranch)}`);
-      lines.push(`Working tree: ${clean ? stdout.green("clean") : stdout.yellow("dirty")}`);
+      lines.push(`Branch: ${yield* stdout.bold(currentBranch)}`);
+      lines.push(
+        `Working tree: ${clean ? yield* stdout.green("clean") : yield* stdout.yellow("dirty")}`,
+      );
 
       if (result !== null) {
         const { branches } = result.stack;
         const idx = branches.indexOf(currentBranch);
-        lines.push(
-          `Stack: ${stdout.bold(result.name)} ${stdout.dim(`(${idx + 1} of ${branches.length})`)}`,
-        );
+        const stackName = yield* stdout.bold(result.name);
+        const position = yield* stdout.dim(`(${idx + 1} of ${branches.length})`);
+        lines.push(`Stack: ${stackName} ${position}`);
       } else {
-        lines.push(stdout.dim("Not in a stack. Run 'stacked create <name>' to start one."));
+        lines.push(yield* stdout.dim("Not in a stack. Run 'stacked create <name>' to start one."));
       }
 
       yield* Console.log(lines.join("\n"));

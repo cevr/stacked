@@ -45,12 +45,11 @@ export const stacks = Command.make("stacks", { json: jsonFlag }).pipe(
       const lines: string[] = [];
       for (const [name, stack] of entries) {
         const isCurrent = stack.branches.includes(currentBranch);
-        const marker = isCurrent ? stdout.green("* ") : "  ";
-        const label = isCurrent ? stdout.bold(name) : name;
+        const marker = isCurrent ? yield* stdout.green("* ") : "  ";
+        const label = isCurrent ? yield* stdout.bold(name) : name;
         const count = stack.branches.length;
-        lines.push(
-          `${marker}${label} ${stdout.dim(`(${count} branch${count === 1 ? "" : "es"})`)}`,
-        );
+        const countText = yield* stdout.dim(`(${count} branch${count === 1 ? "" : "es"})`);
+        lines.push(`${marker}${label} ${countText}`);
       }
 
       yield* Console.log(lines.join("\n"));

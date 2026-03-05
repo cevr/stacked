@@ -84,27 +84,27 @@ export const list = Command.make("list", { stackName: stackNameArg, json: jsonFl
 
       const lines: string[] = [];
 
-      lines.push(`Stack: ${stdout.bold(targetStackName)}`);
-      lines.push(`Trunk: ${stdout.dim(trunk)}`);
+      lines.push(`Stack: ${yield* stdout.bold(targetStackName)}`);
+      lines.push(`Trunk: ${yield* stdout.dim(trunk)}`);
       lines.push("");
 
       for (let i = targetStack.branches.length - 1; i >= 0; i--) {
         const branch = targetStack.branches[i];
         if (branch === undefined) continue;
         const isCurrent = branch === currentBranch;
-        const marker = isCurrent ? stdout.green("* ") : "  ";
-        const prefix = stdout.dim(i === 0 ? "└─" : "├─");
-        const name = isCurrent ? stdout.bold(branch) : branch;
+        const marker = isCurrent ? yield* stdout.green("* ") : "  ";
+        const prefix = yield* stdout.dim(i === 0 ? "└─" : "├─");
+        const name = isCurrent ? yield* stdout.bold(branch) : branch;
 
         const pr = prMap.get(branch) ?? null;
         const status =
           pr === null
             ? ""
             : pr.state === "MERGED"
-              ? stdout.green(" [merged]")
+              ? yield* stdout.green(" [merged]")
               : pr.state === "CLOSED"
-                ? stdout.dim(" [closed]")
-                : stdout.cyan(` [#${pr.number}]`);
+                ? yield* stdout.dim(" [closed]")
+                : yield* stdout.cyan(` [#${pr.number}]`);
 
         lines.push(`${marker}${prefix} ${name}${status}`);
       }
