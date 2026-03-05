@@ -32,9 +32,10 @@ const onlyFlag = Flag.boolean("only").pipe(Flag.withDescription("Only submit the
 
 interface SubmitResult {
   branch: string;
-  number: number;
-  url: string;
-  action: "created" | "updated" | "unchanged";
+  base: string;
+  number?: number;
+  url?: string;
+  action: "created" | "updated" | "unchanged" | "would-create" | "would-update" | "would-unchanged";
 }
 
 const STACKED_MARKER_START = "<!-- stacked -->";
@@ -210,7 +211,23 @@ export const submit = Command.make("submit", {
         if (only && branch !== currentBranch) continue;
 
         if (dryRun) {
-          yield* Console.error(`Would push ${branch} and create/update PR (base: ${base})`);
+          const existingPR = yield* gh.getPR(branch);
+          const action =
+            existingPR === null
+              ? "would-create"
+              : existingPR.base !== base
+                ? "would-update"
+                : "would-unchanged";
+          results.push({
+            branch,
+            base,
+            number: existingPR?.number,
+            url: existingPR?.url,
+            action,
+          });
+          if (!json) {
+            yield* Console.error(`Would push ${branch} and create/update PR (base: ${base})`);
+          }
           continue;
         }
 
@@ -225,6 +242,7 @@ export const submit = Command.make("submit", {
             yield* gh.updatePR({ branch, base });
             results.push({
               branch,
+              base,
               number: existingPR.number,
               url: existingPR.url,
               action: "updated",
@@ -233,6 +251,7 @@ export const submit = Command.make("submit", {
             yield* Console.error(`PR #${existingPR.number} already exists: ${existingPR.url}`);
             results.push({
               branch,
+              base,
               number: existingPR.number,
               url: existingPR.url,
               action: "unchanged",
@@ -257,6 +276,7 @@ export const submit = Command.make("submit", {
           yield* success(`Created PR #${pr.number}: ${pr.url}`);
           results.push({
             branch,
+            base,
             number: pr.number,
             url: pr.url,
             action: "created",
@@ -264,16 +284,23 @@ export const submit = Command.make("submit", {
         }
       }
 
-      if (dryRun) return;
+      if (dryRun) {
+        if (json) {
+          // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+          yield* Console.log(JSON.stringify({ results }, null, 2));
+        }
+        return;
+      }
 
-      // Update existing PRs with stack metadata
+      // Update all processed PRs with complete stack metadata.
+      // This includes newly created PRs so placeholders get replaced in one submit run.
       for (let i = 0; i < branches.length; i++) {
         const branch = branches[i];
         if (branch === undefined) continue;
         if (only && branch !== currentBranch) continue;
 
         const entry = results.find((x) => x.branch === branch);
-        if (entry === undefined || entry.action === "created") continue;
+        if (entry === undefined) continue;
 
         const metadata = generateStackMetadata(branches, prMap, i, result.name);
         const existingPrData = prMap.get(branch) ?? null;

@@ -1,6 +1,10 @@
 // @effect-diagnostics effect/strictEffectProvide:off
 import { describe, it, expect } from "effect-bun-test";
-import { Effect } from "effect";
+import { test } from "bun:test";
+import { BunServices } from "@effect/platform-bun";
+import { Effect, Layer } from "effect";
+import { Command } from "effect/unstable/cli";
+import { reorder } from "../../src/commands/reorder.js";
 import { StackService } from "../../src/services/Stack.js";
 import type { StackFile } from "../../src/services/Stack.js";
 import { createTestLayer } from "../helpers/test-cli.js";
@@ -73,4 +77,20 @@ describe("reorder command logic", () => {
       expect(branches).toEqual(["feat-a", "feat-b", "feat-c"]);
     }).pipe(Effect.provide(createTestLayer({ stack: stackData }))),
   );
+
+  test("reordering a branch relative to itself is a no-op", async () => {
+    const program = Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const run = Command.runWith(reorder, { version: "test" });
+
+      yield* run(["feat-b", "--after", "feat-b"]);
+
+      const updated = yield* stacks.load();
+      expect(updated.stacks["feat-a"]?.branches).toEqual(["feat-a", "feat-b", "feat-c"]);
+    }).pipe(
+      Effect.provide(Layer.mergeAll(createTestLayer({ stack: stackData }), BunServices.layer)),
+    );
+
+    await Effect.runPromise(program);
+  });
 });

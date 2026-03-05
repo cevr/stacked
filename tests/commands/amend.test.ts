@@ -1,7 +1,11 @@
 // @effect-diagnostics effect/strictEffectProvide:off
 import { describe, it } from "effect-bun-test";
-import { Effect } from "effect";
+import { test } from "bun:test";
+import { BunServices } from "@effect/platform-bun";
+import { Effect, Exit, Layer } from "effect";
+import { Command } from "effect/unstable/cli";
 import { GitService } from "../../src/services/Git.js";
+import { amend } from "../../src/commands/amend.js";
 import type { StackFile } from "../../src/services/Stack.js";
 import { CallRecorder, createTestLayer, expectCall, expectNoCall } from "../helpers/test-cli.js";
 
@@ -99,4 +103,31 @@ describe("amend command logic", () => {
       ),
     ),
   );
+
+  test("invalid --from fails before amending commit", async () => {
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(amend, { version: "test" });
+
+      const result = yield* Effect.exit(run(["--from", "does-not-exist"]));
+      if (Exit.isSuccess(result)) {
+        throw new Error("Expected amend to fail for invalid --from");
+      }
+
+      const calls = yield* recorder.calls;
+      expectNoCall(calls, "Git", "commitAmend");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-a" },
+            stack: stackData,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
 });

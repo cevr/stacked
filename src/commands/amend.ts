@@ -37,14 +37,21 @@ export const amend = Command.make("amend", {
         });
       }
 
-      yield* git.commitAmend({ edit });
-
       const fromBranch = Option.isSome(from) ? from.value : currentBranch;
 
       // Find children to rebase
       const { branches } = result.stack;
       const idx = branches.indexOf(fromBranch);
-      if (idx === -1 || idx >= branches.length - 1) {
+      if (idx === -1) {
+        return yield* new StackError({
+          code: ErrorCode.BRANCH_NOT_FOUND,
+          message: `Branch "${fromBranch}" not found in stack "${result.name}"`,
+        });
+      }
+
+      yield* git.commitAmend({ edit });
+
+      if (idx >= branches.length - 1) {
         if (json) {
           // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
           yield* Console.log(JSON.stringify({ amended: currentBranch, synced: [] }, null, 2));

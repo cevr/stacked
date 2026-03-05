@@ -1,11 +1,15 @@
 // @effect-diagnostics effect/strictEffectProvide:off
 import { describe, it, expect } from "effect-bun-test";
-import { Effect } from "effect";
+import { test } from "bun:test";
+import { BunServices } from "@effect/platform-bun";
+import { Effect, Layer } from "effect";
+import { Command } from "effect/unstable/cli";
 import { GitService } from "../../src/services/Git.js";
 import { GitHubService } from "../../src/services/GitHub.js";
 import { StackService } from "../../src/services/Stack.js";
 import type { StackFile } from "../../src/services/Stack.js";
-import { CallRecorder, createTestLayer, expectCall } from "../helpers/test-cli.js";
+import { submit } from "../../src/commands/submit.js";
+import { CallRecorder, createTestLayer, expectCall, expectNoCall } from "../helpers/test-cli.js";
 
 describe("submit command logic", () => {
   const stackData: StackFile = {
@@ -123,4 +127,59 @@ describe("submit command logic", () => {
       ),
     ),
   );
+
+  test("updates metadata for PRs created in the same submit run", async () => {
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(submit, { version: "test" });
+
+      yield* run([]);
+
+      const calls = yield* recorder.calls;
+      expectCall(calls, "GitHub", "createPR", { head: "feat-a" });
+      expectCall(calls, "GitHub", "createPR", { head: "feat-b" });
+      expectCall(calls, "GitHub", "updatePR", { branch: "feat-a" });
+      expectCall(calls, "GitHub", "updatePR", { branch: "feat-b" });
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-a" },
+            stack: stackData,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("dry-run json plans without pushing or mutating PRs", async () => {
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(submit, { version: "test" });
+
+      yield* run(["--dry-run", "--json"]);
+
+      const calls = yield* recorder.calls;
+      expectCall(calls, "GitHub", "getPR", { branch: "feat-a" });
+      expectCall(calls, "GitHub", "getPR", { branch: "feat-b" });
+      expectNoCall(calls, "Git", "push");
+      expectNoCall(calls, "GitHub", "createPR");
+      expectNoCall(calls, "GitHub", "updatePR");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-a" },
+            stack: stackData,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
 });

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Runtime, Schema } from "effect";
 
 // ============================================================================
 // Error Codes
@@ -43,3 +43,9 @@ export class GitHubError extends Schema.TaggedErrorClass<GitHubError>()("GitHubE
   command: Schema.optional(Schema.String),
   code: Schema.optional(Schema.String),
 }) {}
+
+export class GlobalFlagConflictError extends Error {
+  override readonly name = "GlobalFlagConflictError";
+  override readonly [Runtime.errorExitCode] = 2;
+  override readonly [Runtime.errorReported] = false;
+}

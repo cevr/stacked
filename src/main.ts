@@ -7,6 +7,7 @@ import { GitService } from "./services/Git.js";
 import { StackService } from "./services/Stack.js";
 import { GitHubService } from "./services/GitHub.js";
 import { OutputConfig } from "./ui.js";
+import { GlobalFlagConflictError } from "./errors/index.js";
 
 const version = typeof __VERSION__ !== "undefined" ? __VERSION__ : "dev";
 
@@ -25,10 +26,12 @@ const isYes = flagArgs.has("--yes") || flagArgs.has("-y");
 
 if (isNoColor) process.env["NO_COLOR"] = "1";
 
-if (isVerbose && isQuiet) {
-  process.stderr.write("Error: --verbose and --quiet are mutually exclusive\n");
-  process.exitCode = 2;
-}
+const preflight =
+  isVerbose && isQuiet
+    ? Console.error("Error: --verbose and --quiet are mutually exclusive").pipe(
+        Effect.andThen(Effect.fail(new GlobalFlagConflictError())),
+      )
+    : Effect.void;
 
 // ============================================================================
 // CLI
@@ -70,7 +73,8 @@ const handleKnownError = (e: { message: string; code?: string | undefined }) =>
 
 // @effect-diagnostics-next-line effect/strictEffectProvide:off
 BunRuntime.runMain(
-  cli.pipe(
+  preflight.pipe(
+    Effect.andThen(cli),
     Effect.provideService(OutputConfig, { verbose: isVerbose, quiet: isQuiet, yes: isYes }),
     Effect.provide(AppLayer),
     Effect.catchTags({
@@ -78,12 +82,16 @@ BunRuntime.runMain(
       StackError: (e) => handleKnownError(e),
       GitHubError: (e) => handleKnownError(e),
     }),
-    Effect.catch((e) => {
-      const msg =
-        e !== null && typeof e === "object" && "message" in e
-          ? String(e.message)
-          : JSON.stringify(e, null, 2);
-      return handleKnownError({ message: `Unexpected error: ${msg}` });
-    }),
+    Effect.catchIf(
+      (e): e is GlobalFlagConflictError => e instanceof GlobalFlagConflictError,
+      Effect.fail,
+      (e) => {
+        const msg =
+          e !== null && typeof e === "object" && "message" in e
+            ? String(e.message)
+            : JSON.stringify(e, null, 2);
+        return handleKnownError({ message: `Unexpected error: ${msg}` });
+      },
+    ),
   ),
 );

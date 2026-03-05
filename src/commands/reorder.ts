@@ -56,6 +56,16 @@ export const reorder = Command.make("reorder", {
       if (currentIdx === -1) return;
 
       const target = Option.isSome(before) ? before.value : Option.getOrElse(after, () => "");
+      if (target === branch) {
+        if (json) {
+          // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+          yield* Console.log(JSON.stringify({ branch, stack: stackName, branches }, null, 2));
+        } else {
+          yield* warn(`"${branch}" is already at the requested position`);
+        }
+        return;
+      }
+
       const targetIdx = branches.indexOf(target);
       if (targetIdx === -1) {
         return yield* new StackError({
