@@ -1,0 +1,26 @@
+# Stacked Codemap
+
+## Architecture
+
+- `src/main.ts`: CLI entry + command wiring.
+- `src/commands/*.ts`: command handlers (`sync`, `submit`, `clean`, etc.).
+- `src/services/Git.ts`: typed shell wrapper around git operations.
+- `src/services/GitHub.ts`: `gh` wrappers for PR read/create/update.
+- `src/services/Stack.ts`: `.git/stacked.json` model + mutations.
+- `src/errors/index.ts`: tagged error types/codes.
+- `tests/commands/*.test.ts`: command behavior tests via mock services.
+
+## High-Leverage Files
+
+| File                        | Purpose                                                         |
+| --------------------------- | --------------------------------------------------------------- |
+| `src/commands/sync.ts`      | Stack rebase orchestration + push behavior + conflict messaging |
+| `src/commands/submit.ts`    | PR creation/update, base retarget, stacked metadata block       |
+| `src/services/Git.ts`       | Single choke point for git process behavior/options             |
+| `tests/helpers/test-cli.ts` | Mock service layer + call recorder used by command tests        |
+
+## Behavior Notes
+
+- `sync` is git-history operation: fetch, rebase branch chain in order, force-push each rebased branch.
+- `submit` is PR operation: push (again), create/update PRs, refresh stack metadata in PR bodies.
+- Commands assume linear stacks; forked branch trees are detected but intentionally not stacked.
