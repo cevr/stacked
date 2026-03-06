@@ -36,6 +36,7 @@ describe("sync command", () => {
 
       const checkoutCalls = calls.filter((c) => c.service === "Git" && c.method === "checkout");
       expect(checkoutCalls[0]?.args).toEqual({ name: "main" });
+      expect(checkoutCalls.at(-1)?.args).toEqual({ name: "feat-a" });
 
       const rebaseIndex = calls.findIndex(
         (c) =>
@@ -56,6 +57,37 @@ describe("sync command", () => {
         Layer.mergeAll(
           createTestLayer({
             git: { currentBranch: "feat-a" },
+            stack: stackData,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("sync returns to the starting branch after rebasing", async () => {
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(sync, { version: "test" });
+
+      yield* run([]);
+
+      const calls = yield* recorder.calls;
+      const checkoutCalls = calls.filter((c) => c.service === "Git" && c.method === "checkout");
+      expect(checkoutCalls.map((c) => (c.args as { name: string }).name)).toEqual([
+        "main",
+        "feat-a",
+        "feat-b",
+        "feat-c",
+        "feat-b",
+      ]);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-b" },
             stack: stackData,
           }),
           BunServices.layer,

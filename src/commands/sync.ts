@@ -116,21 +116,21 @@ export const sync = Command.make("sync", {
         return;
       }
 
-      yield* withSpinner(`Fetching ${trunk}`, git.fetch());
-      yield* git.checkout(trunk);
-      yield* withSpinner(`Rebasing ${trunk} onto ${originTrunk}`, git.rebase(originTrunk)).pipe(
-        Effect.catchTag("GitError", (e) =>
-          Effect.fail(
-            new StackError({
-              code: ErrorCode.REBASE_CONFLICT,
-              message: `Rebase conflict on ${trunk}: ${e.message}\n\nResolve conflicts, then run:\n  git rebase --continue`,
-            }),
-          ),
-        ),
-      );
-      results.push({ name: trunk, action: "rebased", base: originTrunk });
-
       yield* Effect.gen(function* () {
+        yield* withSpinner(`Fetching ${trunk}`, git.fetch());
+        yield* git.checkout(trunk);
+        yield* withSpinner(`Rebasing ${trunk} onto ${originTrunk}`, git.rebase(originTrunk)).pipe(
+          Effect.catchTag("GitError", (e) =>
+            Effect.fail(
+              new StackError({
+                code: ErrorCode.REBASE_CONFLICT,
+                message: `Rebase conflict on ${trunk}: ${e.message}\n\nResolve conflicts, then run:\n  git rebase --continue`,
+              }),
+            ),
+          ),
+        );
+        results.push({ name: trunk, action: "rebased", base: originTrunk });
+
         for (let i = startIdx; i < branches.length; i++) {
           const branch = branches[i];
           if (branch === undefined) continue;
