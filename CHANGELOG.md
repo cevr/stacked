@@ -1,5 +1,11 @@
 # @cvr/stacked
 
+## 0.4.3
+
+### Patch Changes
+
+- [`ab64012`](https://github.com/cevr/stacked/commit/ab64012a878cf802df4b88a8eb2de9cf2d122087) Thanks [@cevr](https://github.com/cevr)! - Restore the original branch after `stacked sync` completes instead of leaving the user at the top of the stack.
+
 ## 0.4.2
 
 ### Patch Changes
