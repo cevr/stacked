@@ -35,8 +35,10 @@ export const init = Command.make("init").pipe(
 
       yield* Console.error(`Installed stacked skill to ${targetPath}`);
       yield* Console.error("\nNext steps:");
-      yield* Console.error("  stacked trunk          # verify/set your trunk branch");
       yield* Console.error("  stacked create <name>  # start your first stack");
+      yield* Console.error(
+        "  stacked trunk <name>   # only if auto-detection picks the wrong trunk",
+      );
     }),
   ),
 );

@@ -1,8 +1,9 @@
 // @effect-diagnostics effect/strictEffectProvide:off
 import { describe, it, expect } from "effect-bun-test";
-import { Effect } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { StackService } from "../../src/services/Stack.js";
 import type { StackFile } from "../../src/services/Stack.js";
+import { GitService } from "../../src/services/Git.js";
 
 describe("StackService", () => {
   const initialData: StackFile = {
@@ -79,5 +80,62 @@ describe("StackService", () => {
       const data = yield* stacks.load();
       expect(data.stacks["solo"]).toBeUndefined();
     }).pipe(Effect.provide(StackService.layerTest())),
+  );
+
+  it.effect("detectTrunkCandidate prefers remote default branch", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const trunk = yield* stacks.detectTrunkCandidate();
+      expect(Option.getOrUndefined(trunk)).toBe("trunk");
+    }).pipe(
+      Effect.provide(
+        StackService.layer.pipe(
+          Layer.provide(
+            GitService.layerTest({
+              remoteDefaultBranch: () => Effect.succeed(Option.some("trunk")),
+              branchExists: (name: string) => Effect.succeed(name === "trunk"),
+            }),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("detectTrunkCandidate falls back to common branch names", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const trunk = yield* stacks.detectTrunkCandidate();
+      expect(Option.getOrUndefined(trunk)).toBe("master");
+    }).pipe(
+      Effect.provide(
+        StackService.layer.pipe(
+          Layer.provide(
+            GitService.layerTest({
+              remoteDefaultBranch: () => Effect.succeed(Option.none()),
+              branchExists: (name: string) => Effect.succeed(name === "master"),
+            }),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("detectTrunkCandidate returns none when nothing matches", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const trunk = yield* stacks.detectTrunkCandidate();
+      expect(Option.isNone(trunk)).toBe(true);
+    }).pipe(
+      Effect.provide(
+        StackService.layer.pipe(
+          Layer.provide(
+            GitService.layerTest({
+              remoteDefaultBranch: () => Effect.succeed(Option.none()),
+              branchExists: () => Effect.succeed(false),
+            }),
+          ),
+        ),
+      ),
+    ),
   );
 });

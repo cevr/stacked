@@ -1,4 +1,4 @@
-import { Effect, Layer, Ref, Schema, ServiceMap } from "effect";
+import { Effect, Layer, Option, Ref, Schema, ServiceMap } from "effect";
 import { rename } from "node:fs/promises";
 import type { GitError } from "../errors/index.js";
 import { StackError } from "../errors/index.js";
@@ -38,6 +38,7 @@ export class StackService extends ServiceMap.Service<
     readonly findBranchStack: (
       branch: string,
     ) => Effect.Effect<{ name: string; stack: Stack } | null, StackError>;
+    readonly detectTrunkCandidate: () => Effect.Effect<Option.Option<string>, never>;
     readonly getTrunk: () => Effect.Effect<string, StackError>;
     readonly setTrunk: (name: string) => Effect.Effect<void, StackError>;
   }
@@ -62,15 +63,27 @@ export class StackService extends ServiceMap.Service<
       const decodeStackFile = Schema.decodeUnknownEffect(StackFileJson);
       const encodeStackFile = Schema.encodeEffect(StackFileJson);
 
-      const detectTrunk = Effect.fn("StackService.detectTrunk")(function* () {
-        // Check common default branch names
+      const detectTrunkCandidate = Effect.fn("StackService.detectTrunkCandidate")(function* () {
+        const remoteDefault = yield* git.remoteDefaultBranch("origin");
+        if (Option.isSome(remoteDefault)) {
+          const exists = yield* git
+            .branchExists(remoteDefault.value)
+            .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
+          if (exists) return remoteDefault;
+        }
+
         for (const candidate of ["main", "master", "develop"]) {
           const exists = yield* git
             .branchExists(candidate)
             .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
-          if (exists) return candidate;
+          if (exists) return Option.some(candidate);
         }
-        return "main";
+        return Option.none();
+      });
+
+      const detectTrunk = Effect.fn("StackService.detectTrunk")(function* () {
+        const candidate = yield* detectTrunkCandidate();
+        return Option.getOrElse(candidate, () => "main");
       });
 
       const load = Effect.fn("StackService.load")(function* () {
@@ -137,6 +150,7 @@ export class StackService extends ServiceMap.Service<
 
         findBranchStack: (branch: string) =>
           load().pipe(Effect.map((data) => findBranchStack(data, branch))),
+        detectTrunkCandidate: () => detectTrunkCandidate(),
 
         currentStack: Effect.fn("StackService.currentStack")(function* () {
           const branch = yield* git.currentBranch();
@@ -226,7 +240,10 @@ export class StackService extends ServiceMap.Service<
     }),
   );
 
-  static layerTest = (data?: StackFile, options?: { currentBranch?: string }) => {
+  static layerTest = (
+    data?: StackFile,
+    options?: { currentBranch?: string; detectTrunkCandidate?: Option.Option<string> },
+  ) => {
     const initial = data ?? emptyStackFile;
     return Layer.effect(
       StackService,
@@ -297,6 +314,12 @@ export class StackService extends ServiceMap.Service<
             }));
           }),
 
+          detectTrunkCandidate: () =>
+            Effect.succeed(
+              options?.detectTrunkCandidate !== undefined
+                ? options.detectTrunkCandidate
+                : Option.some(initial.trunk),
+            ),
           getTrunk: () => Ref.get(ref).pipe(Effect.map((d) => d.trunk)),
           setTrunk: (name: string) => Ref.update(ref, (d) => ({ ...d, trunk: name })),
         };

@@ -13,11 +13,12 @@ bun run build   # compiles binary to bin/stacked + symlinks to ~/.bun/bin/
 ## Setup
 
 ```sh
-# Trunk is auto-detected (main > master > develop). Override if needed:
-stacked trunk develop
-
 # Install the Claude skill (optional):
 stacked init
+
+# Trunk is auto-detected on first use from origin/HEAD when available
+# (fallback: main > master > develop). Override only if needed:
+stacked trunk <name>
 ```
 
 ## Usage
@@ -131,7 +132,7 @@ stacked --yes clean      # skip confirmation prompts
 
 Stack metadata lives in `.git/stacked.json`. Each branch's parent is implied by array position — `branches[0]`'s parent is trunk, `branches[n]`'s parent is `branches[n-1]`.
 
-Trunk is auto-detected on first use by checking for `main`, `master`, or `develop` branches. Override with `stacked trunk <name>`.
+Trunk is auto-detected on first use from `origin/HEAD` when available, then falls back to local `main`, `master`, or `develop`. Override with `stacked trunk <name>`.
 
 ## Output Conventions
 

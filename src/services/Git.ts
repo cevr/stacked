@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { Effect, Layer, ServiceMap } from "effect";
+import { Effect, Layer, Option, ServiceMap } from "effect";
 import { GitError } from "../errors/index.js";
 
 export class GitService extends ServiceMap.Service<
@@ -8,6 +8,7 @@ export class GitService extends ServiceMap.Service<
     readonly currentBranch: () => Effect.Effect<string, GitError>;
     readonly listBranches: () => Effect.Effect<string[], GitError>;
     readonly branchExists: (name: string) => Effect.Effect<boolean, GitError>;
+    readonly remoteDefaultBranch: (remote?: string) => Effect.Effect<Option.Option<string>, never>;
     readonly createBranch: (name: string, from?: string) => Effect.Effect<void, GitError>;
     readonly deleteBranch: (name: string, force?: boolean) => Effect.Effect<void, GitError>;
     readonly checkout: (name: string) => Effect.Effect<void, GitError>;
@@ -113,6 +114,12 @@ export class GitService extends ServiceMap.Service<
           Effect.catchTag("GitError", () => Effect.succeed(false)),
         ),
 
+      remoteDefaultBranch: (remote = "origin") =>
+        run(["symbolic-ref", "--quiet", "--short", `refs/remotes/${remote}/HEAD`]).pipe(
+          Effect.map((ref) => Option.some(ref.replace(new RegExp(`^${remote}/`), ""))),
+          Effect.catchTag("GitError", () => Effect.succeed(Option.none())),
+        ),
+
       createBranch: (name, from) => {
         const args = from !== undefined ? ["checkout", "-b", name, from] : ["checkout", "-b", name];
         return run(args).pipe(Effect.asVoid);
@@ -183,6 +190,7 @@ export class GitService extends ServiceMap.Service<
       currentBranch: () => Effect.succeed("main"),
       listBranches: () => Effect.succeed([]),
       branchExists: () => Effect.succeed(false),
+      remoteDefaultBranch: () => Effect.succeed(Option.none()),
       createBranch: () => Effect.void,
       deleteBranch: () => Effect.void,
       checkout: () => Effect.void,

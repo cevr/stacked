@@ -1,4 +1,4 @@
-import { Effect, Layer, Ref, ServiceMap } from "effect";
+import { Effect, Layer, Option, Ref, ServiceMap } from "effect";
 import { GitService } from "../../src/services/Git.js";
 import { StackService } from "../../src/services/Stack.js";
 import type { StackFile } from "../../src/services/Stack.js";
@@ -45,6 +45,7 @@ export interface MockGitOptions {
   isClean?: boolean;
   branches?: Record<string, boolean>;
   allBranches?: string[];
+  remoteDefaultBranch?: Option.Option<string>;
   isAncestor?: (ancestor: string, descendant: string) => boolean;
 }
 
@@ -67,6 +68,10 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
           recorder
             .record({ service: "Git", method: "branchExists", args: { name } })
             .pipe(Effect.as(options.branches?.[name] ?? false)),
+        remoteDefaultBranch: (remote?: string) =>
+          recorder
+            .record({ service: "Git", method: "remoteDefaultBranch", args: { remote } })
+            .pipe(Effect.as(options.remoteDefaultBranch ?? Option.none())),
         createBranch: (name: string, from?: string) =>
           recorder.record({ service: "Git", method: "createBranch", args: { name, from } }),
         deleteBranch: (name: string, force?: boolean) =>
@@ -107,8 +112,10 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
     }),
   );
 
-export const createMockStackService = (initial?: StackFile, options?: { currentBranch?: string }) =>
-  StackService.layerTest(initial, options);
+export const createMockStackService = (
+  initial?: StackFile,
+  options?: { currentBranch?: string; detectTrunkCandidate?: Option.Option<string> },
+) => StackService.layerTest(initial, options);
 
 export const createMockGitHubService = (
   overrides: Partial<ServiceMap.Service.Shape<typeof GitHubService>> = {},
@@ -148,6 +155,7 @@ export const createMockGitHubService = (
 export interface TestOptions {
   git?: MockGitOptions;
   stack?: StackFile;
+  stackDetectTrunkCandidate?: Option.Option<string>;
   github?: Partial<ServiceMap.Service.Shape<typeof GitHubService>>;
 }
 
@@ -158,6 +166,7 @@ export const createTestLayer = (options: TestOptions = {}) => {
 
   const stackLayer = createMockStackService(options.stack, {
     currentBranch: options.git?.currentBranch,
+    detectTrunkCandidate: options.stackDetectTrunkCandidate,
   });
 
   const ghLayer = createMockGitHubService(options.github).pipe(Layer.provide(recorderLayer));

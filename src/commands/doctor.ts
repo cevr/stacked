@@ -1,5 +1,5 @@
 import { Command, Flag } from "effect/unstable/cli";
-import { Console, Effect } from "effect";
+import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { success, warn } from "../ui.js";
@@ -33,20 +33,20 @@ export const doctor = Command.make("doctor", { fix: fixFlag, json: jsonFlag }).p
         .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
       if (!trunkExists) {
         if (fix) {
-          // Auto-detect a trunk
-          for (const candidate of ["main", "master", "develop"]) {
-            const exists = yield* git
-              .branchExists(candidate)
-              .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
-            if (exists) {
-              yield* stacks.setTrunk(candidate);
-              findings.push({
-                type: "missing_trunk",
-                message: `Trunk "${data.trunk}" not found, set to "${candidate}"`,
-                fixed: true,
-              });
-              break;
-            }
+          const candidate = yield* stacks.detectTrunkCandidate();
+          if (Option.isSome(candidate)) {
+            yield* stacks.setTrunk(candidate.value);
+            findings.push({
+              type: "missing_trunk",
+              message: `Trunk "${data.trunk}" not found, set to "${candidate.value}"`,
+              fixed: true,
+            });
+          } else {
+            findings.push({
+              type: "missing_trunk",
+              message: `Trunk branch "${data.trunk}" does not exist and no replacement could be auto-detected`,
+              fixed: false,
+            });
           }
         } else {
           findings.push({

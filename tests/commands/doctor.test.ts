@@ -1,6 +1,10 @@
 // @effect-diagnostics effect/strictEffectProvide:off
 import { describe, it, expect } from "effect-bun-test";
-import { Effect } from "effect";
+import { test } from "bun:test";
+import { BunServices } from "@effect/platform-bun";
+import { Effect, Layer, Option } from "effect";
+import { Command } from "effect/unstable/cli";
+import { doctor } from "../../src/commands/doctor.js";
 import { StackService } from "../../src/services/Stack.js";
 import { createTestLayer } from "../helpers/test-cli.js";
 
@@ -112,4 +116,70 @@ describe("doctor command logic", () => {
       ),
     ),
   );
+
+  test("doctor --fix repairs trunk from remote default branch", async () => {
+    const program = Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const run = Command.runWith(doctor, { version: "test" });
+
+      yield* run(["--fix"]);
+
+      const trunk = yield* stacks.getTrunk();
+      expect(trunk).toBe("trunk");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: {
+              currentBranch: "feat-a",
+              remoteDefaultBranch: Option.some("trunk"),
+              branches: { dead: false, trunk: true },
+            },
+            stackDetectTrunkCandidate: Option.some("trunk"),
+            stack: {
+              version: 1,
+              trunk: "dead",
+              stacks: {},
+            },
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("doctor --fix leaves trunk unchanged when no replacement exists", async () => {
+    const program = Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const run = Command.runWith(doctor, { version: "test" });
+
+      yield* run(["--fix"]);
+
+      const trunk = yield* stacks.getTrunk();
+      expect(trunk).toBe("dead");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: {
+              currentBranch: "feat-a",
+              remoteDefaultBranch: Option.none(),
+              branches: { dead: false },
+            },
+            stackDetectTrunkCandidate: Option.none(),
+            stack: {
+              version: 1,
+              trunk: "dead",
+              stacks: {},
+            },
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
 });
