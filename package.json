@@ -25,6 +25,7 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "test": "bun test",
+    "bench:git": "bun run scripts/benchmark-git.ts",
     "gate": "concurrently -n type,lint,fmt,test,build -c blue,yellow,magenta,green,cyan \"bun run typecheck\" \"bun run lint\" \"bun run fmt\" \"bun run test\" \"bun run build\"",
     "version": "changeset version",
     "release": "changeset publish",
@@ -34,6 +35,7 @@
   "dependencies": {
     "@effect/platform-bun": "4.0.0-beta.27",
     "effect": "4.0.0-beta.27",
+    "es-git": "^0.6.0",
     "picocolors": "^1.1.1"
   },
   "devDependencies": {
