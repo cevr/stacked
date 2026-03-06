@@ -1,5 +1,11 @@
 # @cvr/stacked
 
+## 0.4.2
+
+### Patch Changes
+
+- [`aa25c2e`](https://github.com/cevr/stacked/commit/aa25c2e8cdd5c8ae443a7cd8901ae047e9556168) Thanks [@cevr](https://github.com/cevr)! - Improve trunk auto-detection by preferring the repo default branch from `origin/HEAD`, falling back to common local branch names, and align onboarding/docs to present manual trunk configuration as an override rather than a required setup step.
+
 ## 0.4.1
 
 ### Patch Changes
