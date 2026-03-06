@@ -239,6 +239,27 @@ export const GitEsLayer = Layer.effect(
           catch: (error) => makeGitError(`es-git.mergeBase ${a} ${b}`, error),
         }),
 
+      firstParentUniqueCommits: (ref, base, options) =>
+        Effect.try({
+          try: () => {
+            const revwalk = repo.revwalk();
+            revwalk.simplifyFirstParent();
+            revwalk.push(resolveOid(repo, ref));
+            revwalk.hide(resolveOid(repo, base));
+
+            const commits: string[] = [];
+            const limit = options?.limit ?? Number.POSITIVE_INFINITY;
+            while (commits.length < limit) {
+              const oid = revwalk.next();
+              if (oid === null) break;
+              commits.push(oid);
+            }
+
+            return commits;
+          },
+          catch: (error) => makeGitError(`es-git.firstParentUniqueCommits ${ref} ${base}`, error),
+        }),
+
       isRebaseInProgress: () =>
         Effect.try({
           try: () => {

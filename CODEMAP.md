@@ -6,7 +6,7 @@
 - `src/commands/*.ts`: command handlers (`sync`, `submit`, `clean`, etc.).
 - `src/services/Git.ts`: typed shell wrapper around git operations.
 - `src/services/GitHub.ts`: `gh` wrappers for PR read/create/update.
-- `src/services/Stack.ts`: `.git/stacked.json` model + mutations.
+- `src/services/Stack.ts`: `.git/stacked.json` model, v1→v2 migration, stack projection, and mutations.
 - `src/errors/index.ts`: tagged error types/codes.
 - `tests/commands/*.test.ts`: command behavior tests via mock services.
 
@@ -24,3 +24,4 @@
 - `sync` is git-history operation: fetch, rebase branch chain in order, force-push each rebased branch.
 - `submit` is PR operation: push (again), create/update PRs, refresh stack metadata in PR bodies.
 - Commands assume linear stacks; forked branch trees are detected but intentionally not stacked.
+- `detect` now treats metadata as source of truth for managed branches and only infers parentage for untracked branches.

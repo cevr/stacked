@@ -74,28 +74,22 @@ export const reorder = Command.make("reorder", {
         });
       }
 
-      // Remove from current position
-      branches.splice(currentIdx, 1);
-
-      // Insert at target position
-      const newTargetIdx = branches.indexOf(target);
-      if (Option.isSome(before)) {
-        branches.splice(newTargetIdx, 0, branch);
-      } else {
-        branches.splice(newTargetIdx + 1, 0, branch);
-      }
-
-      const data = yield* stacks.load();
-      yield* stacks.save({
-        ...data,
-        stacks: { ...data.stacks, [stackName]: { branches } },
+      const updated = yield* stacks.reorderBranch(branch, {
+        before: Option.getOrUndefined(before),
+        after: Option.getOrUndefined(after),
       });
 
       if (json) {
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
-        yield* Console.log(JSON.stringify({ branch, stack: stackName, branches }, null, 2));
+        yield* Console.log(
+          JSON.stringify(
+            { branch, stack: updated.name, branches: [...updated.stack.branches] },
+            null,
+            2,
+          ),
+        );
       } else {
-        yield* success(`Moved "${branch}" in stack "${stackName}"`);
+        yield* success(`Moved "${branch}" in stack "${updated.name}"`);
         yield* warn("Run 'stacked sync' to rebase branches in new order");
       }
     }),

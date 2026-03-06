@@ -28,8 +28,8 @@ describe("submit command logic", () => {
       const recorder = yield* CallRecorder;
 
       const trunk = yield* stacks.getTrunk();
-      const data = yield* stacks.load();
-      const branches = data.stacks["feat-a"]?.branches ?? [];
+      const stack = yield* stacks.getStack("feat-a");
+      const branches = [...(stack?.branches ?? [])];
 
       for (let i = 0; i < branches.length; i++) {
         const branch = branches[i];
@@ -67,8 +67,8 @@ describe("submit command logic", () => {
       const recorder = yield* CallRecorder;
 
       const trunk = yield* stacks.getTrunk();
-      const data = yield* stacks.load();
-      const branches = data.stacks["feat-a"]?.branches ?? [];
+      const stack = yield* stacks.getStack("feat-a");
+      const branches = [...(stack?.branches ?? [])];
       const branch = branches[0];
       if (branch === undefined) return;
 
@@ -108,8 +108,8 @@ describe("submit command logic", () => {
       const recorder = yield* CallRecorder;
       const stacks = yield* StackService;
 
-      const data = yield* stacks.load();
-      const branches = data.stacks["feat-a"]?.branches ?? [];
+      const stack = yield* stacks.getStack("feat-a");
+      const branches = [...(stack?.branches ?? [])];
 
       for (const branch of branches) {
         yield* git.push(branch, { force: false });

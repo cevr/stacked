@@ -66,8 +66,8 @@ describe("detect command logic", () => {
       expect(chain).toEqual(["feat-a", "feat-b", "feat-c"]);
 
       yield* stacks.createStack("feat-a", chain);
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-a"]?.branches).toEqual(["feat-a", "feat-b", "feat-c"]);
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack?.branches).toEqual(["feat-a", "feat-b", "feat-c"]);
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -84,11 +84,9 @@ describe("detect command logic", () => {
   it.effect("skips already-tracked branches", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-
       const allBranches = ["main", "feat-a", "feat-b"];
-      const trunk = data.trunk;
-      const alreadyTracked = new Set(Object.values(data.stacks).flatMap((s) => [...s.branches]));
+      const trunk = yield* stacks.getTrunk();
+      const alreadyTracked = new Set(yield* stacks.trackedBranches());
       const untracked = allBranches.filter((b) => b !== trunk && !alreadyTracked.has(b));
 
       // feat-a is already tracked, only feat-b is untracked
@@ -119,8 +117,8 @@ describe("detect command logic", () => {
 
       const stacks = yield* StackService;
       const data = yield* stacks.load();
-      const trunk = data.trunk;
-      const alreadyTracked = new Set(Object.values(data.stacks).flatMap((stack) => stack.branches));
+      const trunk = yield* stacks.getTrunk();
+      const alreadyTracked = new Set(yield* stacks.trackedBranches());
       const mergedBranches = new Set(data.mergedBranches ?? []);
       const untracked = ["main", "feat-a", "feat-b"].filter(
         (branch) => branch !== trunk && !alreadyTracked.has(branch) && !mergedBranches.has(branch),
@@ -155,17 +153,8 @@ describe("detect command logic", () => {
     Effect.gen(function* () {
       const stacks = yield* StackService;
 
-      // Pre-create a stack with the same name as what detect would generate
-      yield* stacks.createStack("feat-a", ["feat-a"]);
-
-      // Attempting to create again should fail (duplicate)
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-a"]).toBeDefined();
-
-      // Simulate detect behavior: check before creating
-      const existingData = yield* stacks.load();
-      const alreadyExists = existingData.stacks["feat-a"] !== undefined;
-      expect(alreadyExists).toBe(true);
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack).not.toBeNull();
     }).pipe(
       Effect.provide(
         createTestLayer({

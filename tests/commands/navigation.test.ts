@@ -37,8 +37,7 @@ describe("navigation commands", () => {
   it.effect("top resolves to last branch in stack", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-      const stack = data.stacks["feat-a"];
+      const stack = yield* stacks.getStack("feat-a");
       const topBranch = stack?.branches[stack.branches.length - 1];
       expect(topBranch).toBe("feat-c");
     }).pipe(
@@ -54,8 +53,7 @@ describe("navigation commands", () => {
   it.effect("bottom resolves to first branch in stack", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-      const stack = data.stacks["feat-a"];
+      const stack = yield* stacks.getStack("feat-a");
       const bottomBranch = stack?.branches[0];
       expect(bottomBranch).toBe("feat-a");
     }).pipe(
@@ -71,8 +69,7 @@ describe("navigation commands", () => {
   it.effect("up resolves to next branch in stack", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-      const stack = data.stacks["feat-a"];
+      const stack = yield* stacks.getStack("feat-a");
       const branches = stack?.branches ?? [];
       const currentBranch = "feat-a";
       const idx = branches.indexOf(currentBranch);
@@ -91,8 +88,7 @@ describe("navigation commands", () => {
   it.effect("down resolves to previous branch in stack", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-      const stack = data.stacks["feat-a"];
+      const stack = yield* stacks.getStack("feat-a");
       const branches = stack?.branches ?? [];
       const currentBranch = "feat-c";
       const idx = branches.indexOf(currentBranch);
@@ -111,8 +107,7 @@ describe("navigation commands", () => {
   it.effect("up at top has no next branch", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-      const stack = data.stacks["feat-a"];
+      const stack = yield* stacks.getStack("feat-a");
       const branches = stack?.branches ?? [];
       const currentBranch = "feat-c";
       const idx = branches.indexOf(currentBranch);
@@ -131,8 +126,7 @@ describe("navigation commands", () => {
   it.effect("down at bottom has no previous branch", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-      const stack = data.stacks["feat-a"];
+      const stack = yield* stacks.getStack("feat-a");
       const branches = stack?.branches ?? [];
       const currentBranch = "feat-a";
       const idx = branches.indexOf(currentBranch);

@@ -26,6 +26,14 @@ export const doctor = Command.make("doctor", { fix: fixFlag, json: jsonFlag }).p
 
       const data = yield* stacks.load();
       const findings: Finding[] = [];
+      const stackEntries = yield* stacks.listStacks().pipe(
+        Effect.catchTag("StackError", (error) =>
+          Effect.sync(() => {
+            findings.push({ type: "parse_error", message: error.message, fixed: false });
+            return [] as const;
+          }),
+        ),
+      );
 
       // Check 1: trunk branch exists
       const trunkExists = yield* git
@@ -58,14 +66,14 @@ export const doctor = Command.make("doctor", { fix: fixFlag, json: jsonFlag }).p
       }
 
       // Check 2: all tracked branches exist in git
-      for (const [stackName, stack] of Object.entries(data.stacks)) {
+      for (const { name: stackName, stack } of stackEntries) {
         for (const branch of stack.branches) {
           const exists = yield* git
             .branchExists(branch)
             .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
           if (!exists) {
             if (fix) {
-              yield* stacks.removeBranch(stackName, branch);
+              yield* stacks.removeBranch(branch);
               findings.push({
                 type: "stale_branch",
                 message: `Removed stale branch "${branch}" from stack "${stackName}"`,
@@ -84,12 +92,10 @@ export const doctor = Command.make("doctor", { fix: fixFlag, json: jsonFlag }).p
 
       // Check 3: no branches in multiple stacks
       const branchToStacks = new Map<string, string[]>();
-      for (const [stackName, stack] of Object.entries(data.stacks)) {
-        for (const branch of stack.branches) {
-          const existing = branchToStacks.get(branch) ?? [];
-          existing.push(stackName);
-          branchToStacks.set(branch, existing);
-        }
+      for (const [branch, record] of Object.entries(data.branches)) {
+        const existing = branchToStacks.get(branch) ?? [];
+        existing.push(record.stack);
+        branchToStacks.set(branch, existing);
       }
       for (const [branch, stackNames] of branchToStacks) {
         if (stackNames.length > 1) {

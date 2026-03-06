@@ -42,14 +42,14 @@ describe("clean command logic", () => {
 
       // feat-a and feat-b merged, feat-c open
       // Should remove feat-a and feat-b, leave feat-c
-      const data = yield* stacks.load();
-      for (const [stackName, stack] of Object.entries(data.stacks)) {
+      const entries = yield* stacks.listStacks();
+      for (const { stack } of entries) {
         let hitNonMerged = false;
         for (const branch of stack.branches) {
           const pr = yield* gh.getPR(branch).pipe(Effect.catch(() => Effect.succeed(null)));
           const isMerged = pr !== null && pr.state === "MERGED";
           if (!hitNonMerged && isMerged) {
-            yield* stacks.removeBranch(stackName, branch);
+            yield* stacks.removeBranch(branch);
             yield* git.deleteBranch(branch, true);
           } else {
             if (!isMerged) hitNonMerged = true;
@@ -64,9 +64,10 @@ describe("clean command logic", () => {
       const deleteCalls = calls.filter((c) => c.service === "Git" && c.method === "deleteBranch");
       expect(deleteCalls).toHaveLength(2);
 
-      const updated = yield* stacks.load();
-      expect(updated.stacks["feat-a"]).toBeUndefined();
-      expect(updated.stacks["feat-c"]?.branches).toEqual(["feat-c"]);
+      const oldStack = yield* stacks.getStack("feat-a");
+      const newStack = yield* stacks.getStack("feat-c");
+      expect(oldStack).toBeNull();
+      expect(newStack?.branches).toEqual(["feat-c"]);
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -85,11 +86,10 @@ describe("clean command logic", () => {
 
       // feat-a merged, feat-b open, feat-c merged
       // Should only identify feat-a for removal
-      const data = yield* stacks.load();
       const toRemove: string[] = [];
       const skipped: string[] = [];
 
-      for (const stack of Object.values(data.stacks)) {
+      for (const { stack } of yield* stacks.listStacks()) {
         let hitNonMerged = false;
         for (const branch of stack.branches) {
           const pr = yield* gh.getPR(branch).pipe(Effect.catch(() => Effect.succeed(null)));
@@ -122,20 +122,19 @@ describe("clean command logic", () => {
       const gh = yield* GitHubService;
       const stacks = yield* StackService;
 
-      const data = yield* stacks.load();
-      for (const [stackName, stack] of Object.entries(data.stacks)) {
+      for (const { stack } of yield* stacks.listStacks()) {
         for (const branch of stack.branches) {
           const pr = yield* gh.getPR(branch).pipe(Effect.catch(() => Effect.succeed(null)));
           const isMerged = pr !== null && pr.state === "MERGED";
           if (isMerged) {
-            yield* stacks.removeBranch(stackName, branch);
+            yield* stacks.removeBranch(branch);
             yield* git.deleteBranch(branch, true);
           }
         }
       }
 
-      const updated = yield* stacks.load();
-      expect(updated.stacks["feat-a"]).toBeUndefined();
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack).toBeNull();
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -153,8 +152,7 @@ describe("clean command logic", () => {
       const stacks = yield* StackService;
       const recorder = yield* CallRecorder;
 
-      const data = yield* stacks.load();
-      for (const stack of Object.values(data.stacks)) {
+      for (const { stack } of yield* stacks.listStacks()) {
         for (const branch of stack.branches) {
           yield* gh.getPR(branch).pipe(Effect.catch(() => Effect.succeed(null)));
         }

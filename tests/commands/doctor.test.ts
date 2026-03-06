@@ -12,8 +12,7 @@ describe("doctor command logic", () => {
   it.effect("detects stale branches not in git", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-      const stack = data.stacks["feat-a"];
+      const stack = yield* stacks.getStack("feat-a");
       expect(stack?.branches).toEqual(["feat-a", "feat-b"]);
       // With branches: { "feat-a": false, "feat-b": false }, branchExists returns false
       // doctor would flag both as stale
@@ -31,24 +30,11 @@ describe("doctor command logic", () => {
     ),
   );
 
-  it.effect("detects duplicate branches across stacks", () =>
+  it.effect("normalizes duplicate v1 branch entries down to one tracked branch", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-
-      // Check for branches appearing in multiple stacks
-      const branchToStacks = new Map<string, string[]>();
-      for (const [stackName, stack] of Object.entries(data.stacks)) {
-        for (const branch of stack.branches) {
-          const existing = branchToStacks.get(branch) ?? [];
-          existing.push(stackName);
-          branchToStacks.set(branch, existing);
-        }
-      }
-
-      const duplicates = [...branchToStacks.entries()].filter(([_, names]) => names.length > 1);
-      expect(duplicates).toHaveLength(1);
-      expect(duplicates[0]?.[0]).toBe("shared");
+      const tracked = yield* stacks.trackedBranches();
+      expect(tracked.filter((branch) => branch === "shared")).toEqual(["shared"]);
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -71,10 +57,10 @@ describe("doctor command logic", () => {
       const stacks = yield* StackService;
 
       // Simulate what doctor --fix does: remove branches not in git
-      yield* stacks.removeBranch("feat-a", "feat-stale");
+      yield* stacks.removeBranch("feat-stale");
 
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-a"]?.branches).toEqual(["feat-a"]);
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack?.branches).toEqual(["feat-a"]);
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -96,11 +82,12 @@ describe("doctor command logic", () => {
     Effect.gen(function* () {
       const stacks = yield* StackService;
 
-      yield* stacks.removeBranch("feat-a", "feat-a");
+      yield* stacks.removeBranch("feat-a");
 
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-a"]).toBeUndefined();
-      expect(data.stacks["feat-b"]?.branches).toEqual(["feat-b"]);
+      const oldStack = yield* stacks.getStack("feat-a");
+      const newStack = yield* stacks.getStack("feat-b");
+      expect(oldStack).toBeNull();
+      expect(newStack?.branches).toEqual(["feat-b"]);
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -121,11 +108,11 @@ describe("doctor command logic", () => {
   it.effect("reports no issues for healthy stack", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
 
       // All branches exist, no duplicates, trunk exists
-      expect(data.stacks["feat-a"]?.branches).toEqual(["feat-a", "feat-b"]);
-      expect(data.trunk).toBe("main");
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack?.branches).toEqual(["feat-a", "feat-b"]);
+      expect(yield* stacks.getTrunk()).toBe("main");
     }).pipe(
       Effect.provide(
         createTestLayer({

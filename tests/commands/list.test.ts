@@ -17,18 +17,10 @@ describe("list command logic", () => {
   it.effect("finds current stack from branch name", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-
       const currentBranch = "feat-b";
-      let found: string | null = null;
-      for (const [name, stack] of Object.entries(data.stacks)) {
-        if (stack.branches.includes(currentBranch)) {
-          found = name;
-          break;
-        }
-      }
+      const found = yield* stacks.findBranchStack(currentBranch);
 
-      expect(found).toBe("feat-a");
+      expect(found?.name ?? null).toBe("feat-a");
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -42,16 +34,8 @@ describe("list command logic", () => {
   it.effect("returns null when not on stacked branch", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-
       const currentBranch = "unrelated";
-      let found: string | null = null;
-      for (const [name, stack] of Object.entries(data.stacks)) {
-        if (stack.branches.includes(currentBranch)) {
-          found = name;
-          break;
-        }
-      }
+      const found = yield* stacks.findBranchStack(currentBranch);
 
       expect(found).toBeNull();
     }).pipe(

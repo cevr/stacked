@@ -5,6 +5,8 @@ import { StackService } from "../services/Stack.js";
 import { success, warn, info } from "../ui.js";
 import { detectLimitConfig, limitUntrackedBranches } from "./helpers/detect.js";
 
+const DETECT_COMMIT_LIMIT = 2048;
+
 const dryRunFlag = Flag.boolean("dry-run").pipe(
   Flag.withDescription("Show what would be detected without making changes"),
 );
@@ -26,8 +28,8 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
       const candidates = allBranches.filter((b) => b !== trunk);
 
       const data = yield* stacks.load();
-      const alreadyTracked = new Set(Object.values(data.stacks).flatMap((s) => [...s.branches]));
-      const mergedBranches = new Set(data.mergedBranches ?? []);
+      const alreadyTracked = new Set(Object.keys(data.branches));
+      const mergedBranches = new Set(data.mergedBranches);
       const untrackedAll = candidates.filter(
         (b) => !alreadyTracked.has(b) && !mergedBranches.has(b),
       );
@@ -45,42 +47,63 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
         );
       }
 
-      // Build parent map: for each branch, find its direct parent among other branches
-      // A parent is the closest ancestor — i.e., an ancestor that is not an ancestor of another ancestor
       const childOf = new Map<string, string>();
+      const unclassified: string[] = [];
+
+      const tipResults = yield* Effect.forEach(
+        untracked,
+        (branch) =>
+          git.revParse(branch).pipe(
+            Effect.map((oid) => [branch, oid] as const),
+            Effect.catchTag("GitError", () => Effect.succeed(null)),
+          ),
+        { concurrency: 5 },
+      );
+
+      const tipOwners = new Map<string, string[]>();
+      for (const result of tipResults) {
+        if (result === null) continue;
+        const [branch, oid] = result;
+        const owners = tipOwners.get(oid) ?? [];
+        owners.push(branch);
+        tipOwners.set(oid, owners);
+      }
 
       yield* Effect.forEach(
         untracked,
         (branch) =>
           Effect.gen(function* () {
-            // Check all potential ancestors (trunk + other untracked) in parallel
-            const potentialAncestors = [trunk, ...untracked.filter((b) => b !== branch)];
-            const ancestryResults = yield* Effect.forEach(
-              potentialAncestors,
-              (other) =>
-                git.isAncestor(other, branch).pipe(
-                  Effect.catchTag("GitError", () => Effect.succeed(false)),
-                  Effect.map((is) => [other, is] as const),
-                ),
-              { concurrency: 5 },
-            );
+            const commits = yield* git
+              .firstParentUniqueCommits(branch, trunk, { limit: DETECT_COMMIT_LIMIT })
+              .pipe(Effect.catchTag("GitError", () => Effect.succeed([])));
 
-            const ancestors = ancestryResults.filter(([_, is]) => is).map(([name]) => name);
-
-            if (ancestors.length === 0) return;
-
-            // Find the closest ancestor — the one that is a descendant of all others
-            let closest = ancestors[0] ?? trunk;
-            for (let i = 1; i < ancestors.length; i++) {
-              const candidate = ancestors[i];
-              if (candidate === undefined) continue;
-              const candidateIsCloser = yield* git
-                .isAncestor(closest, candidate)
-                .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
-              if (candidateIsCloser) closest = candidate;
+            if (commits.length === 0) {
+              unclassified.push(branch);
+              return;
             }
 
-            childOf.set(branch, closest);
+            let parent: string | null = null;
+            let ambiguous = false;
+
+            for (const oid of commits) {
+              const owners = (tipOwners.get(oid) ?? []).filter((owner) => owner !== branch);
+              if (owners.length > 1) {
+                ambiguous = true;
+                break;
+              }
+              const [owner] = owners;
+              if (owner !== undefined) {
+                parent = owner;
+                break;
+              }
+            }
+
+            if (ambiguous || (commits.length >= DETECT_COMMIT_LIMIT && parent === null)) {
+              unclassified.push(branch);
+              return;
+            }
+
+            childOf.set(branch, parent ?? trunk);
           }),
         { concurrency: 5 },
       );
@@ -140,8 +163,8 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
       for (const chain of chains) {
         const name = chain[0];
         if (name === undefined) continue;
-        const currentData = yield* stacks.load();
-        if (currentData.stacks[name] !== undefined) {
+        const existing = yield* stacks.getStack(name);
+        if (existing !== null) {
           yield* warn(`Stack "${name}" already exists, skipping: ${chain.join(" → ")}`);
           continue;
         }
@@ -164,6 +187,12 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
         for (const fork of forks) {
           yield* Console.error(`  ${fork.branch} → ${fork.children.join(", ")}`);
         }
+      }
+
+      if (unclassified.length > 0 && !json) {
+        yield* warn(
+          `Skipped ${unclassified.length} unclassified branch${unclassified.length === 1 ? "" : "es"}: ${unclassified.join(", ")}`,
+        );
       }
     }),
   ),

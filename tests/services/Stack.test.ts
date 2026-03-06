@@ -35,8 +35,8 @@ describe("StackService", () => {
     Effect.gen(function* () {
       const stacks = yield* StackService;
       yield* stacks.createStack("new-stack", ["branch-1"]);
-      const data = yield* stacks.load();
-      expect(data.stacks["new-stack"]).toEqual({ branches: ["branch-1"] });
+      const stack = yield* stacks.getStack("new-stack");
+      expect(stack).toEqual({ root: "branch-1", branches: ["branch-1"] });
     }).pipe(Effect.provide(StackService.layerTest(initialData))),
   );
 
@@ -44,8 +44,8 @@ describe("StackService", () => {
     Effect.gen(function* () {
       const stacks = yield* StackService;
       yield* stacks.addBranch("feat-a", "feat-d");
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-a"]?.branches).toEqual(["feat-a", "feat-b", "feat-c", "feat-d"]);
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack?.branches).toEqual(["feat-a", "feat-b", "feat-c", "feat-d"]);
     }).pipe(Effect.provide(StackService.layerTest(initialData))),
   );
 
@@ -53,37 +53,38 @@ describe("StackService", () => {
     Effect.gen(function* () {
       const stacks = yield* StackService;
       yield* stacks.addBranch("feat-a", "feat-x", "feat-a");
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-a"]?.branches).toEqual(["feat-a", "feat-x", "feat-b", "feat-c"]);
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack?.branches).toEqual(["feat-a", "feat-x", "feat-b", "feat-c"]);
     }).pipe(Effect.provide(StackService.layerTest(initialData))),
   );
 
   it.effect("removeBranch removes from stack", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      yield* stacks.removeBranch("feat-a", "feat-b");
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-a"]?.branches).toEqual(["feat-a", "feat-c"]);
+      yield* stacks.removeBranch("feat-b");
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack?.branches).toEqual(["feat-a", "feat-c"]);
     }).pipe(Effect.provide(StackService.layerTest(initialData))),
   );
 
   it.effect("removeBranch reroots stack when the first branch is removed", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      yield* stacks.removeBranch("feat-a", "feat-a");
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-a"]).toBeUndefined();
-      expect(data.stacks["feat-b"]?.branches).toEqual(["feat-b", "feat-c"]);
+      yield* stacks.removeBranch("feat-a");
+      const oldStack = yield* stacks.getStack("feat-a");
+      const newStack = yield* stacks.getStack("feat-b");
+      expect(oldStack).toBeNull();
+      expect(newStack?.branches).toEqual(["feat-b", "feat-c"]);
     }).pipe(Effect.provide(StackService.layerTest(initialData))),
   );
 
   it.effect("removeBranch resolves current stack after rerooting", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      yield* stacks.removeBranch("feat-a", "feat-a");
-      yield* stacks.removeBranch("feat-a", "feat-b");
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-c"]?.branches).toEqual(["feat-c"]);
+      yield* stacks.removeBranch("feat-a");
+      yield* stacks.removeBranch("feat-b");
+      const stack = yield* stacks.getStack("feat-c");
+      expect(stack?.branches).toEqual(["feat-c"]);
     }).pipe(Effect.provide(StackService.layerTest(initialData))),
   );
 
@@ -96,28 +97,28 @@ describe("StackService", () => {
         stacks: { solo: { branches: ["only-one"] } },
       };
       yield* stacks.save(singleStack);
-      yield* stacks.removeBranch("solo", "only-one");
-      const data = yield* stacks.load();
-      expect(data.stacks["solo"]).toBeUndefined();
+      yield* stacks.removeBranch("only-one");
+      const stack = yield* stacks.getStack("solo");
+      expect(stack).toBeNull();
     }).pipe(Effect.provide(StackService.layerTest())),
   );
 
   it.effect("markMergedBranches persists merged branch names", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      yield* stacks.markMergedBranches(["feat-a", "feat-b"]);
+      yield* stacks.markMergedBranches(["merged-a", "merged-b"]);
       const data = yield* stacks.load();
-      expect(data.mergedBranches).toEqual(["feat-a", "feat-b"]);
+      expect(data.mergedBranches).toEqual(["merged-a", "merged-b"]);
     }).pipe(Effect.provide(StackService.layerTest(initialData))),
   );
 
   it.effect("unmarkMergedBranches removes merged branch names", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      yield* stacks.markMergedBranches(["feat-a", "feat-b"]);
-      yield* stacks.unmarkMergedBranches(["feat-a"]);
+      yield* stacks.markMergedBranches(["merged-a", "merged-b"]);
+      yield* stacks.unmarkMergedBranches(["merged-a"]);
       const data = yield* stacks.load();
-      expect(data.mergedBranches).toEqual(["feat-b"]);
+      expect(data.mergedBranches).toEqual(["merged-b"]);
     }).pipe(Effect.provide(StackService.layerTest(initialData))),
   );
 

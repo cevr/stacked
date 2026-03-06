@@ -21,54 +21,26 @@ describe("reorder command logic", () => {
   it.effect("moves branch before another", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-
-      // Move feat-c before feat-a
-      const branches = [...(data.stacks["feat-a"]?.branches ?? [])];
-      const currentIdx = branches.indexOf("feat-c");
-      branches.splice(currentIdx, 1);
-      const targetIdx = branches.indexOf("feat-a");
-      branches.splice(targetIdx, 0, "feat-c");
-
-      yield* stacks.save({
-        ...data,
-        stacks: { ...data.stacks, "feat-a": { branches } },
-      });
-
-      const updated = yield* stacks.load();
-      expect(updated.stacks["feat-a"]?.branches).toEqual(["feat-c", "feat-a", "feat-b"]);
+      yield* stacks.reorderBranch("feat-c", { before: "feat-a" });
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack?.branches).toEqual(["feat-c", "feat-a", "feat-b"]);
     }).pipe(Effect.provide(createTestLayer({ stack: stackData }))),
   );
 
   it.effect("moves branch after another", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-
-      // Move feat-a after feat-c
-      const branches = [...(data.stacks["feat-a"]?.branches ?? [])];
-      const currentIdx = branches.indexOf("feat-a");
-      branches.splice(currentIdx, 1);
-      const targetIdx = branches.indexOf("feat-c");
-      branches.splice(targetIdx + 1, 0, "feat-a");
-
-      yield* stacks.save({
-        ...data,
-        stacks: { ...data.stacks, "feat-a": { branches } },
-      });
-
-      const updated = yield* stacks.load();
-      expect(updated.stacks["feat-a"]?.branches).toEqual(["feat-b", "feat-c", "feat-a"]);
+      yield* stacks.reorderBranch("feat-a", { after: "feat-c" });
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack?.branches).toEqual(["feat-b", "feat-c", "feat-a"]);
     }).pipe(Effect.provide(createTestLayer({ stack: stackData }))),
   );
 
   it.effect("moving to same position is a no-op", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-
-      // Move feat-b after feat-a (already there)
-      const branches = [...(data.stacks["feat-a"]?.branches ?? [])];
+      const stack = yield* stacks.getStack("feat-a");
+      const branches = [...(stack?.branches ?? [])];
       const currentIdx = branches.indexOf("feat-b");
       branches.splice(currentIdx, 1);
       const targetIdx = branches.indexOf("feat-a");
@@ -85,8 +57,8 @@ describe("reorder command logic", () => {
 
       yield* run(["feat-b", "--after", "feat-b"]);
 
-      const updated = yield* stacks.load();
-      expect(updated.stacks["feat-a"]?.branches).toEqual(["feat-a", "feat-b", "feat-c"]);
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack?.branches).toEqual(["feat-a", "feat-b", "feat-c"]);
     }).pipe(
       Effect.provide(Layer.mergeAll(createTestLayer({ stack: stackData }), BunServices.layer)),
     );

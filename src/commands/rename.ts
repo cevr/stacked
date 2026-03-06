@@ -16,27 +16,23 @@ export const rename = Command.make("rename", { old: oldArg, new: newArg, json: j
   Command.withHandler(({ old: oldName, new: newName, json }) =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-
-      const data = yield* stacks.load();
-
-      if (data.stacks[oldName] === undefined) {
+      const existing = yield* stacks.getStack(oldName);
+      if (existing === null) {
         return yield* new StackError({
           code: ErrorCode.STACK_NOT_FOUND,
           message: `Stack "${oldName}" not found`,
         });
       }
 
-      if (data.stacks[newName] !== undefined) {
+      const collision = yield* stacks.getStack(newName);
+      if (collision !== null) {
         return yield* new StackError({
           code: ErrorCode.STACK_EXISTS,
           message: `Stack "${newName}" already exists`,
         });
       }
 
-      const stack = data.stacks[oldName];
-      if (stack === undefined) return;
-      const { [oldName]: _, ...rest } = data.stacks;
-      yield* stacks.save({ ...data, stacks: { ...rest, [newName]: stack } });
+      yield* stacks.renameStack(oldName, newName);
 
       if (json) {
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off

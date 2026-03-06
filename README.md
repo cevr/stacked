@@ -130,7 +130,7 @@ stacked --yes clean      # skip confirmation prompts
 
 ## Data Model
 
-Stack metadata lives in `.git/stacked.json`. Each branch's parent is implied by array position — `branches[0]`'s parent is trunk, `branches[n]`'s parent is `branches[n-1]`.
+Stack metadata lives in `.git/stacked.json`. Active stacks are stored as explicit linear parent links plus a per-stack root, and older v1 metadata is auto-migrated on load. `mergedBranches` remains a skip-list so `detect` does not try to rebuild stacks around already-merged branches.
 
 Trunk is auto-detected on first use from `origin/HEAD` when available, then falls back to local `main`, `master`, or `develop`. Override with `stacked trunk <name>`.
 

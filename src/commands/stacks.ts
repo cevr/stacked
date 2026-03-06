@@ -18,9 +18,7 @@ export const stacks = Command.make("stacks", { json: jsonFlag }).pipe(
       const stackService = yield* StackService;
 
       const currentBranch = yield* git.currentBranch();
-      const data = yield* stackService.load();
-
-      const entries = Object.entries(data.stacks);
+      const entries = yield* stackService.listStacks();
       if (entries.length === 0) {
         if (json) {
           // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
@@ -32,7 +30,7 @@ export const stacks = Command.make("stacks", { json: jsonFlag }).pipe(
       }
 
       if (json) {
-        const stackList = entries.map(([name, stack]) => ({
+        const stackList = entries.map(({ name, stack }) => ({
           name,
           branches: stack.branches.length,
           current: stack.branches.includes(currentBranch),
@@ -43,7 +41,7 @@ export const stacks = Command.make("stacks", { json: jsonFlag }).pipe(
       }
 
       const lines: string[] = [];
-      for (const [name, stack] of entries) {
+      for (const { name, stack } of entries) {
         const isCurrent = stack.branches.includes(currentBranch);
         const marker = isCurrent ? yield* stdout.green("* ") : "  ";
         const label = isCurrent ? yield* stdout.bold(name) : name;

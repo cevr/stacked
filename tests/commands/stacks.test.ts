@@ -18,14 +18,13 @@ describe("stacks command logic", () => {
   it.effect("lists all stacks with branch counts", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-
-      const names = Object.keys(data.stacks);
+      const entries = yield* stacks.listStacks();
+      const names = entries.map(({ name }) => name);
       expect(names).toHaveLength(2);
       expect(names).toContain("feat-auth");
       expect(names).toContain("feat-perf");
-      expect(data.stacks["feat-auth"]!.branches).toHaveLength(2);
-      expect(data.stacks["feat-perf"]!.branches).toHaveLength(1);
+      expect(entries.find((entry) => entry.name === "feat-auth")?.stack.branches).toHaveLength(2);
+      expect(entries.find((entry) => entry.name === "feat-perf")?.stack.branches).toHaveLength(1);
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -39,16 +38,8 @@ describe("stacks command logic", () => {
   it.effect("identifies current stack from branch", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-
       const currentBranch = "feat-auth-ui";
-      let currentStackName: string | null = null;
-      for (const [name, stack] of Object.entries(data.stacks)) {
-        if (stack.branches.includes(currentBranch)) {
-          currentStackName = name;
-          break;
-        }
-      }
+      const currentStackName = (yield* stacks.findBranchStack(currentBranch))?.name ?? null;
 
       expect(currentStackName).toBe("feat-auth");
     }).pipe(
@@ -64,9 +55,7 @@ describe("stacks command logic", () => {
   it.effect("handles empty stacks", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-
-      expect(Object.keys(data.stacks)).toHaveLength(0);
+      expect(yield* stacks.listStacks()).toHaveLength(0);
     }).pipe(
       Effect.provide(
         createTestLayer({

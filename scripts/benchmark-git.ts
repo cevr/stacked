@@ -123,6 +123,10 @@ const readOperations: ReadOperation[] = [
   { name: "revParse", run: withGit((git) => git.revParse("HEAD")) },
   { name: "mergeBase", run: withGit((git) => git.mergeBase("HEAD", "HEAD~1")) },
   { name: "isAncestor", run: withGit((git) => git.isAncestor("HEAD~1", "HEAD")) },
+  {
+    name: "firstParentUniqueCommits",
+    run: withGit((git) => git.firstParentUniqueCommits("HEAD", "HEAD~1", { limit: 20 })),
+  },
   { name: "log", run: withGit((git) => git.log("HEAD", { limit: 20, oneline: true })) },
 ];
 

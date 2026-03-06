@@ -25,15 +25,14 @@ export const list = Command.make("list", { stackName: stackNameArg, json: jsonFl
       const stacks = yield* StackService;
 
       const currentBranch = yield* git.currentBranch();
-      const data = yield* stacks.load();
-      const trunk = data.trunk;
+      const trunk = yield* stacks.getTrunk();
 
       let targetStackName: string | null = null;
       let targetStack: { readonly branches: readonly string[] } | null = null;
 
       if (Option.isSome(stackName)) {
-        const s = data.stacks[stackName.value];
-        if (s === undefined) {
+        const s = yield* stacks.getStack(stackName.value);
+        if (s === null) {
           return yield* new StackError({
             code: ErrorCode.STACK_NOT_FOUND,
             message: `Stack "${stackName.value}" not found`,

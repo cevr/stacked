@@ -35,17 +35,9 @@ export const split = Command.make("split", {
       }
 
       const { name: stackName, stack } = result;
-      const branches = [...stack.branches];
-      const splitIdx = branches.indexOf(branch);
-
-      if (splitIdx === 0) {
-        return yield* new StackError({
-          message: `Branch "${branch}" is at the bottom of the stack — nothing to split`,
-        });
-      }
-
-      const below = branches.slice(0, splitIdx);
-      const above = branches.slice(splitIdx);
+      const splitIdx = stack.branches.indexOf(branch);
+      const below = stack.branches.slice(0, splitIdx);
+      const above = stack.branches.slice(splitIdx);
       const newStackName = branch;
 
       if (dryRun) {
@@ -68,23 +60,7 @@ export const split = Command.make("split", {
         return;
       }
 
-      const data = yield* stacks.load();
-
-      if (data.stacks[newStackName] !== undefined) {
-        return yield* new StackError({
-          code: ErrorCode.STACK_EXISTS,
-          message: `Stack "${newStackName}" already exists — choose a different split point or rename it first`,
-        });
-      }
-
-      yield* stacks.save({
-        ...data,
-        stacks: {
-          ...data.stacks,
-          [stackName]: { branches: below },
-          [newStackName]: { branches: above },
-        },
-      });
+      yield* stacks.splitStack(branch);
 
       if (json) {
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off

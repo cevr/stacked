@@ -102,6 +102,14 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
           recorder
             .record({ service: "Git", method: "mergeBase", args: { a, b } })
             .pipe(Effect.as("abc123")),
+        firstParentUniqueCommits: (ref: string, base: string, params?: { limit?: number }) =>
+          recorder
+            .record({
+              service: "Git",
+              method: "firstParentUniqueCommits",
+              args: { ref, base, ...params },
+            })
+            .pipe(Effect.as([])),
         isRebaseInProgress: () => Effect.succeed(false),
         commitAmend: (opts?: { edit?: boolean }) =>
           recorder.record({ service: "Git", method: "commitAmend", args: { ...opts } }),

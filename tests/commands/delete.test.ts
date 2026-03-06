@@ -19,10 +19,10 @@ describe("delete command logic", () => {
     Effect.gen(function* () {
       const stacks = yield* StackService;
 
-      yield* stacks.removeBranch("feat-a", "feat-c");
+      yield* stacks.removeBranch("feat-c");
 
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-a"]?.branches).toEqual(["feat-a", "feat-b"]);
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack?.branches).toEqual(["feat-a", "feat-b"]);
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -38,12 +38,12 @@ describe("delete command logic", () => {
       const stacks = yield* StackService;
 
       // Remove all branches one by one
-      yield* stacks.removeBranch("feat-a", "feat-c");
-      yield* stacks.removeBranch("feat-a", "feat-b");
-      yield* stacks.removeBranch("feat-a", "feat-a");
+      yield* stacks.removeBranch("feat-c");
+      yield* stacks.removeBranch("feat-b");
+      yield* stacks.removeBranch("feat-a");
 
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-a"]).toBeUndefined();
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack).toBeNull();
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -61,15 +61,14 @@ describe("delete command logic", () => {
       const recorder = yield* CallRecorder;
 
       // Simulate: on feat-c (tail), delete feat-c, should checkout to feat-b
-      const data = yield* stacks.load();
-      const stack = data.stacks["feat-a"]!;
+      const stack = yield* stacks.getStack("feat-a");
       const name = "feat-c";
-      const idx = stack.branches.indexOf(name);
-      const parent = stack.branches[idx - 1] ?? data.trunk;
+      const idx = stack?.branches.indexOf(name) ?? -1;
+      const parent = stack?.branches[idx - 1] ?? "main";
 
       yield* git.checkout(parent);
       yield* git.deleteBranch(name, false);
-      yield* stacks.removeBranch("feat-a", name);
+      yield* stacks.removeBranch(name);
 
       const calls = yield* recorder.calls;
       const checkoutCall = calls.find(
@@ -97,14 +96,14 @@ describe("delete command logic", () => {
 
       // Simulate delete of tail branch
       yield* git.deleteBranch("feat-c", false);
-      yield* stacks.removeBranch("feat-a", "feat-c");
+      yield* stacks.removeBranch("feat-c");
 
       const calls = yield* recorder.calls;
       const deleteIdx = calls.findIndex((c) => c.service === "Git" && c.method === "deleteBranch");
       expect(deleteIdx).toBeGreaterThanOrEqual(0);
 
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-a"]?.branches).toEqual(["feat-a", "feat-b"]);
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack?.branches).toEqual(["feat-a", "feat-b"]);
     }).pipe(
       Effect.provide(
         createTestLayer({

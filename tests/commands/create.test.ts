@@ -10,12 +10,11 @@ describe("create command logic", () => {
     Effect.gen(function* () {
       const stacks = yield* StackService;
 
-      yield* stacks.createStack("feat-a", []);
-      yield* stacks.addBranch("feat-a", "feat-a");
+      yield* stacks.createStack("feat-a", ["feat-a"]);
 
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-a"]).toBeDefined();
-      expect(data.stacks["feat-a"]?.branches).toEqual(["feat-a"]);
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack).not.toBeNull();
+      expect(stack?.branches).toEqual(["feat-a"]);
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -65,8 +64,8 @@ describe("create command logic", () => {
       yield* stacks.createStack("feat-a", ["feat-a"]);
       yield* stacks.addBranch("feat-a", "feat-b", "feat-a");
 
-      const data = yield* stacks.load();
-      expect(data.stacks["feat-a"]?.branches).toEqual(["feat-a", "feat-b"]);
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack?.branches).toEqual(["feat-a", "feat-b"]);
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -84,8 +83,7 @@ describe("create command logic", () => {
 
       // Simulate create from trunk
       yield* git.createBranch("feat-a", "main");
-      yield* stacks.createStack("feat-a", []);
-      yield* stacks.addBranch("feat-a", "feat-a");
+      yield* stacks.createStack("feat-a", ["feat-a"]);
 
       const calls = yield* recorder.calls;
       const createIdx = calls.findIndex((c) => c.service === "Git" && c.method === "createBranch");

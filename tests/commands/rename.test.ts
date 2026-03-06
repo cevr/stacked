@@ -17,36 +17,24 @@ describe("rename command logic", () => {
   it.effect("renames stack key in metadata", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-
-      // Simulate rename: remove old key, add new key with same branches
-      const stack = data.stacks["feat-a"];
-      expect(stack).toBeDefined();
-      const { "feat-a": _, ...rest } = data.stacks;
-      yield* stacks.save({ ...data, stacks: { ...rest, "new-name": stack! } });
-
-      const updated = yield* stacks.load();
-      expect(updated.stacks["feat-a"]).toBeUndefined();
-      expect(updated.stacks["new-name"]).toBeDefined();
-      expect(updated.stacks["new-name"]?.branches).toEqual(["feat-a", "feat-b"]);
+      yield* stacks.renameStack("feat-a", "new-name");
+      expect(yield* stacks.getStack("feat-a")).toBeNull();
+      const stack = yield* stacks.getStack("new-name");
+      expect(stack?.branches).toEqual(["feat-a", "feat-b"]);
     }).pipe(Effect.provide(createTestLayer({ stack: stackData }))),
   );
 
   it.effect("errors on nonexistent stack", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-      expect(data.stacks["nonexistent"]).toBeUndefined();
+      expect(yield* stacks.getStack("nonexistent")).toBeNull();
     }).pipe(Effect.provide(createTestLayer({ stack: stackData }))),
   );
 
   it.effect("errors on duplicate target name", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
-      const data = yield* stacks.load();
-
-      // Can't rename to a name that already exists
-      expect(data.stacks["feat-a"]).toBeDefined();
+      expect(yield* stacks.getStack("feat-a")).not.toBeNull();
     }).pipe(
       Effect.provide(
         createTestLayer({

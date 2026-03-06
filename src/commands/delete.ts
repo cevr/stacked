@@ -101,7 +101,7 @@ export const deleteCmd = Command.make("delete", {
       }
 
       yield* git.deleteBranch(name, force);
-      yield* stacks.removeBranch(stackName, name);
+      yield* stacks.removeBranch(name);
 
       if (willDeleteRemote) {
         yield* git.deleteRemoteBranch(name).pipe(Effect.catchTag("GitError", () => Effect.void));

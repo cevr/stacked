@@ -32,11 +32,11 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
       }
 
       let currentBranch = yield* git.currentBranch();
-      const data = yield* stacks.load();
+      const entries = yield* stacks.listStacks();
 
       // Fetch all PR statuses in parallel across all stacks
-      const allBranches = Object.entries(data.stacks).flatMap(([stackName, stack]) =>
-        stack.branches.map((branch) => ({ stackName, branch })),
+      const allBranches = entries.flatMap(({ name, stack }) =>
+        stack.branches.map((branch) => ({ stackName: name, branch })),
       );
 
       const prResults = yield* Effect.forEach(
@@ -53,7 +53,7 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
       const toRemove: Array<{ stackName: string; branch: string }> = [];
       const skippedMerged: Array<{ stackName: string; branch: string }> = [];
 
-      for (const [stackName, stack] of Object.entries(data.stacks)) {
+      for (const { name: stackName, stack } of entries) {
         let hitNonMerged = false;
         for (const branch of stack.branches) {
           const pr = prMap.get(branch) ?? null;
@@ -129,7 +129,7 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
               ),
             );
           if (deleted) {
-            yield* stacks.removeBranch(stackName, branch);
+            yield* stacks.removeBranch(branch);
             yield* stacks.markMergedBranches([branch]);
             removed.push(branch);
             yield* success(`Removed ${branch} from ${stackName}`);

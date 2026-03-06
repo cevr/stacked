@@ -28,6 +28,11 @@ export class GitService extends ServiceMap.Service<
     readonly revParse: (ref: string) => Effect.Effect<string, GitError>;
     readonly isAncestor: (ancestor: string, descendant: string) => Effect.Effect<boolean, GitError>;
     readonly mergeBase: (a: string, b: string) => Effect.Effect<string, GitError>;
+    readonly firstParentUniqueCommits: (
+      ref: string,
+      base: string,
+      options?: { limit?: number },
+    ) => Effect.Effect<readonly string[], GitError>;
     readonly isRebaseInProgress: () => Effect.Effect<boolean>;
     readonly commitAmend: (options?: { edit?: boolean }) => Effect.Effect<void, GitError>;
     readonly fetch: (remote?: string) => Effect.Effect<void, GitError>;
@@ -163,6 +168,20 @@ export class GitService extends ServiceMap.Service<
 
       mergeBase: (a, b) => run(["merge-base", a, b]),
 
+      firstParentUniqueCommits: (ref, base, options) => {
+        const args = ["rev-list", "--first-parent"];
+        if (options?.limit !== undefined) args.push("--max-count", `${options.limit}`);
+        args.push(ref, `^${base}`);
+        return run(args).pipe(
+          Effect.map((output) =>
+            output
+              .split("\n")
+              .map((line) => line.trim())
+              .filter((line) => line.length > 0),
+          ),
+        );
+      },
+
       isRebaseInProgress: () =>
         run(["rev-parse", "--git-dir"]).pipe(
           Effect.map(
@@ -203,6 +222,7 @@ export class GitService extends ServiceMap.Service<
       revParse: () => Effect.succeed("abc123"),
       isAncestor: () => Effect.succeed(true),
       mergeBase: () => Effect.succeed("abc123"),
+      firstParentUniqueCommits: () => Effect.succeed([]),
       isRebaseInProgress: () => Effect.succeed(false),
       commitAmend: () => Effect.void,
       fetch: () => Effect.void,

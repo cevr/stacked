@@ -80,20 +80,24 @@ export const create = Command.make("create", {
 
       const existing = yield* stacks.findBranchStack(baseBranch);
       let stackName = existing?.name ?? null;
+      let shouldAddBranch = true;
 
       yield* git.createBranch(name, baseBranch);
 
       if (stackName === null) {
         if (baseBranch === trunk) {
           stackName = name;
-          yield* stacks.createStack(name, []);
+          shouldAddBranch = false;
+          yield* stacks.createStack(name, [name]);
         } else {
           stackName = baseBranch;
           yield* stacks.createStack(baseBranch, [baseBranch]);
         }
       }
 
-      yield* stacks.addBranch(stackName, name, baseBranch === trunk ? undefined : baseBranch);
+      if (shouldAddBranch) {
+        yield* stacks.addBranch(stackName, name, baseBranch === trunk ? undefined : baseBranch);
+      }
 
       if (json) {
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
