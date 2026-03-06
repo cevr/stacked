@@ -12,12 +12,13 @@ export const StackFileSchema = Schema.Struct({
   version: Schema.Literal(1),
   trunk: Schema.String,
   stacks: Schema.Record(Schema.String, StackSchema),
+  mergedBranches: Schema.optional(Schema.Array(Schema.String)),
 });
 
 export type Stack = typeof StackSchema.Type;
 export type StackFile = typeof StackFileSchema.Type;
 
-const emptyStackFile: StackFile = { version: 1, trunk: "main", stacks: {} };
+const emptyStackFile: StackFile = { version: 1, trunk: "main", stacks: {}, mergedBranches: [] };
 
 export class StackService extends ServiceMap.Service<
   StackService,
@@ -35,6 +36,8 @@ export class StackService extends ServiceMap.Service<
     ) => Effect.Effect<void, StackError>;
     readonly removeBranch: (stackName: string, branch: string) => Effect.Effect<void, StackError>;
     readonly createStack: (name: string, branches: string[]) => Effect.Effect<void, StackError>;
+    readonly markMergedBranches: (branches: readonly string[]) => Effect.Effect<void, StackError>;
+    readonly unmarkMergedBranches: (branches: readonly string[]) => Effect.Effect<void, StackError>;
     readonly findBranchStack: (
       branch: string,
     ) => Effect.Effect<{ name: string; stack: Stack } | null, StackError>;
@@ -102,6 +105,10 @@ export class StackService extends ServiceMap.Service<
           catch: () => new StackError({ message: `Failed to read ${path}` }),
         });
         return yield* decodeStackFile(text).pipe(
+          Effect.map((data) => ({
+            ...data,
+            mergedBranches: data.mergedBranches ?? [],
+          })),
           Effect.catchTag("SchemaError", (e) =>
             Effect.gen(function* () {
               const backupPath = `${path}.backup`;
@@ -188,6 +195,7 @@ export class StackService extends ServiceMap.Service<
           }
           yield* save({
             ...data,
+            mergedBranches: (data.mergedBranches ?? []).filter((name) => name !== branch),
             stacks: { ...data.stacks, [stackName]: { branches } },
           });
         }),
@@ -197,18 +205,28 @@ export class StackService extends ServiceMap.Service<
           branch: string,
         ) {
           const data = yield* load();
-          const stack = data.stacks[stackName];
-          if (stack === undefined) {
+          const resolved =
+            data.stacks[stackName] !== undefined
+              ? { name: stackName, stack: data.stacks[stackName] }
+              : findBranchStack(data, branch);
+          if (resolved === null) {
             return yield* new StackError({ message: `Stack "${stackName}" not found` });
           }
+          const { name: resolvedStackName, stack } = resolved;
+
           const branches = stack.branches.filter((b) => b !== branch);
           if (branches.length === 0) {
-            const { [stackName]: _, ...rest } = data.stacks;
+            const { [resolvedStackName]: _, ...rest } = data.stacks;
             yield* save({ ...data, stacks: rest });
           } else {
+            const nextStackName =
+              resolvedStackName === branch && resolvedStackName === stack.branches[0]
+                ? (branches[0] ?? resolvedStackName)
+                : resolvedStackName;
+            const { [resolvedStackName]: _, ...rest } = data.stacks;
             yield* save({
               ...data,
-              stacks: { ...data.stacks, [stackName]: { branches } },
+              stacks: { ...rest, [nextStackName]: { branches } },
             });
           }
         }),
@@ -223,7 +241,34 @@ export class StackService extends ServiceMap.Service<
           }
           yield* save({
             ...data,
+            mergedBranches: (data.mergedBranches ?? []).filter(
+              (branch) => !branches.includes(branch),
+            ),
             stacks: { ...data.stacks, [name]: { branches } },
+          });
+        }),
+
+        markMergedBranches: Effect.fn("StackService.markMergedBranches")(function* (
+          branches: readonly string[],
+        ) {
+          if (branches.length === 0) return;
+          const data = yield* load();
+          const mergedBranches = new Set(data.mergedBranches ?? []);
+          for (const branch of branches) {
+            mergedBranches.add(branch);
+          }
+          yield* save({ ...data, mergedBranches: [...mergedBranches].sort() });
+        }),
+
+        unmarkMergedBranches: Effect.fn("StackService.unmarkMergedBranches")(function* (
+          branches: readonly string[],
+        ) {
+          if (branches.length === 0) return;
+          const data = yield* load();
+          const branchSet = new Set(branches);
+          yield* save({
+            ...data,
+            mergedBranches: (data.mergedBranches ?? []).filter((branch) => !branchSet.has(branch)),
           });
         }),
 
@@ -260,7 +305,10 @@ export class StackService extends ServiceMap.Service<
         };
 
         return {
-          load: () => Ref.get(ref),
+          load: () =>
+            Ref.get(ref).pipe(
+              Effect.map((d) => ({ ...d, mergedBranches: d.mergedBranches ?? [] })),
+            ),
           save: (d) => Ref.set(ref, d),
 
           findBranchStack: (branch: string) =>
@@ -296,23 +344,50 @@ export class StackService extends ServiceMap.Service<
             branch: string,
           ) {
             yield* Ref.update(ref, (d) => {
-              const stack = d.stacks[stackName];
-              if (stack === undefined) return d;
+              const resolved =
+                d.stacks[stackName] !== undefined
+                  ? { name: stackName, stack: d.stacks[stackName] }
+                  : findBranchStack(d, branch);
+              if (resolved === null) return d;
+              const { name: resolvedStackName, stack } = resolved;
               const branches = stack.branches.filter((b) => b !== branch);
               if (branches.length === 0) {
-                const { [stackName]: _, ...rest } = d.stacks;
+                const { [resolvedStackName]: _, ...rest } = d.stacks;
                 return { ...d, stacks: rest };
               }
-              return { ...d, stacks: { ...d.stacks, [stackName]: { branches } } };
+              const nextStackName =
+                resolvedStackName === branch && resolvedStackName === stack.branches[0]
+                  ? (branches[0] ?? resolvedStackName)
+                  : resolvedStackName;
+              const { [resolvedStackName]: _, ...rest } = d.stacks;
+              return { ...d, stacks: { ...rest, [nextStackName]: { branches } } };
             });
           }),
 
           createStack: Effect.fn("test.createStack")(function* (name: string, branches: string[]) {
             yield* Ref.update(ref, (d) => ({
               ...d,
+              mergedBranches: (d.mergedBranches ?? []).filter(
+                (branch) => !branches.includes(branch),
+              ),
               stacks: { ...d.stacks, [name]: { branches } },
             }));
           }),
+
+          markMergedBranches: (branches: readonly string[]) =>
+            Ref.update(ref, (d) => ({
+              ...d,
+              mergedBranches: [...new Set([...(d.mergedBranches ?? []), ...branches])].sort(),
+            })),
+
+          unmarkMergedBranches: (branches: readonly string[]) =>
+            Ref.update(ref, (d) => {
+              const branchSet = new Set(branches);
+              return {
+                ...d,
+                mergedBranches: (d.mergedBranches ?? []).filter((branch) => !branchSet.has(branch)),
+              };
+            }),
 
           detectTrunkCandidate: () =>
             Effect.succeed(

@@ -4,6 +4,11 @@ import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { GitHubService } from "../services/GitHub.js";
 import { ErrorCode, StackError } from "../errors/index.js";
+import {
+  composePRBody,
+  generateStackMetadata,
+  refreshStackedPRBodies,
+} from "./helpers/pr-metadata.js";
 import { withSpinner, success } from "../ui.js";
 
 const draftFlag = Flag.boolean("draft").pipe(
@@ -37,78 +42,6 @@ interface SubmitResult {
   url?: string;
   action: "created" | "updated" | "unchanged" | "would-create" | "would-update" | "would-unchanged";
 }
-
-const STACKED_MARKER_START = "<!-- stacked -->";
-const STACKED_MARKER_END = "<!-- /stacked -->";
-
-const generateStackMetadata = (
-  branches: readonly string[],
-  prMap: Map<string, { number: number; url: string; state: string } | null>,
-  currentIdx: number,
-  stackName: string,
-): string => {
-  const rows = branches.map((branch, i) => {
-    const pr = prMap.get(branch) ?? null;
-    const isCurrent = i === currentIdx;
-    const branchCol = isCurrent ? `**\`${branch}\`**` : `\`${branch}\``;
-    const numCol = i + 1;
-    const numStr = isCurrent ? `**${numCol}**` : `${numCol}`;
-
-    let prCol: string;
-    if (pr === null) {
-      prCol = "—";
-    } else if (pr.state === "MERGED") {
-      prCol = `[#${pr.number}](${pr.url}) ✅`;
-    } else if (isCurrent) {
-      prCol = `**#${pr.number} ← you are here**`;
-    } else {
-      prCol = `[#${pr.number}](${pr.url})`;
-    }
-
-    return `| ${numStr} | ${branchCol} | ${prCol} |`;
-  });
-
-  return [
-    STACKED_MARKER_START,
-    `**Stack: \`${stackName}\`** (${currentIdx + 1} of ${branches.length})`,
-    "",
-    "| # | Branch | PR |",
-    "|---|--------|----|",
-    ...rows,
-    STACKED_MARKER_END,
-  ].join("\n");
-};
-
-const composePRBody = (userBody: string | undefined, metadata: string): string => {
-  if (userBody !== undefined) {
-    return `${userBody}\n\n---\n\n${metadata}`;
-  }
-  return metadata;
-};
-
-const updatePRBody = (
-  existingBody: string | undefined,
-  userBody: string | undefined,
-  metadata: string,
-): string => {
-  if (userBody !== undefined) {
-    return composePRBody(userBody, metadata);
-  }
-
-  if (existingBody !== undefined) {
-    const startIdx = existingBody.indexOf(STACKED_MARKER_START);
-    if (startIdx !== -1) {
-      const prefix = existingBody.substring(0, startIdx).replace(/\n*---\n*$/, "");
-      if (prefix.trim().length > 0) {
-        return `${prefix.trim()}\n\n---\n\n${metadata}`;
-      }
-      return metadata;
-    }
-    return `${existingBody.trim()}\n\n---\n\n${metadata}`;
-  }
-
-  return metadata;
-};
 
 const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
 
@@ -294,21 +227,16 @@ export const submit = Command.make("submit", {
 
       // Update all processed PRs with complete stack metadata.
       // This includes newly created PRs so placeholders get replaced in one submit run.
-      for (let i = 0; i < branches.length; i++) {
-        const branch = branches[i];
-        if (branch === undefined) continue;
-        if (only && branch !== currentBranch) continue;
-
-        const entry = results.find((x) => x.branch === branch);
-        if (entry === undefined) continue;
-
-        const metadata = generateStackMetadata(branches, prMap, i, result.name);
-        const existingPrData = prMap.get(branch) ?? null;
-        const existingBody = existingPrData?.body ?? undefined;
-        const userBody = getBodyForBranch(branch, i);
-        const body = updatePRBody(existingBody, userBody, metadata);
-        yield* gh.updatePR({ branch, body });
-      }
+      yield* refreshStackedPRBodies({
+        branches,
+        stackName: result.name,
+        gh,
+        initialPrMap: prMap,
+        shouldUpdateBranch: (branch) =>
+          (!only || branch === currentBranch) && results.some((entry) => entry.branch === branch),
+        getUserBody: getBodyForBranch,
+      });
+      yield* stacks.unmarkMergedBranches(branches);
 
       // Print structured output to stdout
       if (json) {

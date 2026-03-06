@@ -67,6 +67,26 @@ describe("StackService", () => {
     }).pipe(Effect.provide(StackService.layerTest(initialData))),
   );
 
+  it.effect("removeBranch reroots stack when the first branch is removed", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      yield* stacks.removeBranch("feat-a", "feat-a");
+      const data = yield* stacks.load();
+      expect(data.stacks["feat-a"]).toBeUndefined();
+      expect(data.stacks["feat-b"]?.branches).toEqual(["feat-b", "feat-c"]);
+    }).pipe(Effect.provide(StackService.layerTest(initialData))),
+  );
+
+  it.effect("removeBranch resolves current stack after rerooting", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      yield* stacks.removeBranch("feat-a", "feat-a");
+      yield* stacks.removeBranch("feat-a", "feat-b");
+      const data = yield* stacks.load();
+      expect(data.stacks["feat-c"]?.branches).toEqual(["feat-c"]);
+    }).pipe(Effect.provide(StackService.layerTest(initialData))),
+  );
+
   it.effect("removeBranch removes stack when last branch removed", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
@@ -80,6 +100,25 @@ describe("StackService", () => {
       const data = yield* stacks.load();
       expect(data.stacks["solo"]).toBeUndefined();
     }).pipe(Effect.provide(StackService.layerTest())),
+  );
+
+  it.effect("markMergedBranches persists merged branch names", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      yield* stacks.markMergedBranches(["feat-a", "feat-b"]);
+      const data = yield* stacks.load();
+      expect(data.mergedBranches).toEqual(["feat-a", "feat-b"]);
+    }).pipe(Effect.provide(StackService.layerTest(initialData))),
+  );
+
+  it.effect("unmarkMergedBranches removes merged branch names", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      yield* stacks.markMergedBranches(["feat-a", "feat-b"]);
+      yield* stacks.unmarkMergedBranches(["feat-a"]);
+      const data = yield* stacks.load();
+      expect(data.mergedBranches).toEqual(["feat-b"]);
+    }).pipe(Effect.provide(StackService.layerTest(initialData))),
   );
 
   it.effect("detectTrunkCandidate prefers remote default branch", () =>

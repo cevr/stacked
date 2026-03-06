@@ -27,7 +27,10 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
 
       const data = yield* stacks.load();
       const alreadyTracked = new Set(Object.values(data.stacks).flatMap((s) => [...s.branches]));
-      const untrackedAll = candidates.filter((b) => !alreadyTracked.has(b));
+      const mergedBranches = new Set(data.mergedBranches ?? []);
+      const untrackedAll = candidates.filter(
+        (b) => !alreadyTracked.has(b) && !mergedBranches.has(b),
+      );
       const detectLimit = yield* detectLimitConfig;
       const { untracked, skipped } = limitUntrackedBranches(untrackedAll, detectLimit);
 

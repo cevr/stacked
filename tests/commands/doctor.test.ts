@@ -92,6 +92,32 @@ describe("doctor command logic", () => {
     ),
   );
 
+  it.effect("fix mode reroots stack when stale root branch is removed", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+
+      yield* stacks.removeBranch("feat-a", "feat-a");
+
+      const data = yield* stacks.load();
+      expect(data.stacks["feat-a"]).toBeUndefined();
+      expect(data.stacks["feat-b"]?.branches).toEqual(["feat-b"]);
+    }).pipe(
+      Effect.provide(
+        createTestLayer({
+          git: {
+            currentBranch: "main",
+            branches: { "feat-a": false, "feat-b": true },
+          },
+          stack: {
+            version: 1,
+            trunk: "main",
+            stacks: { "feat-a": { branches: ["feat-a", "feat-b"] } },
+          },
+        }),
+      ),
+    ),
+  );
+
   it.effect("reports no issues for healthy stack", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;

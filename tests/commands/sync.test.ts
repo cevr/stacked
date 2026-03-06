@@ -6,6 +6,7 @@ import { Effect, Layer } from "effect";
 import { Command } from "effect/unstable/cli";
 import type { StackFile } from "../../src/services/Stack.js";
 import { sync } from "../../src/commands/sync.js";
+import { StackService } from "../../src/services/Stack.js";
 import { CallRecorder, createTestLayer, expectCall, expectNoCall } from "../helpers/test-cli.js";
 
 describe("sync command", () => {
@@ -151,6 +152,73 @@ describe("sync command", () => {
           createTestLayer({
             git: { currentBranch: "feat-a" },
             stack: stackData,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("sync refreshes stacked PR bodies when an upstream PR has been merged", async () => {
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(sync, { version: "test" });
+
+      yield* run([]);
+
+      const calls = yield* recorder.calls;
+      const featBUpdate = expectCall(calls, "GitHub", "updatePR", { branch: "feat-b" });
+      const featCUpdate = expectCall(calls, "GitHub", "updatePR", { branch: "feat-c" });
+
+      const featBBody = (featBUpdate.args as { body?: string }).body;
+      const featCBody = (featCUpdate.args as { body?: string }).body;
+
+      expect(featBBody).toContain("[#10](https://github.com/test/repo/pull/10) ✅");
+      expect(featBBody).toContain("**#11 ← you are here**");
+      expect(featCBody).toContain("[#10](https://github.com/test/repo/pull/10) ✅");
+      expect(featCBody).toContain("[#11](https://github.com/test/repo/pull/11)");
+      expect(featCBody).toContain("**#12 ← you are here**");
+
+      const stacks = yield* StackService;
+      const data = yield* stacks.load();
+      expect(data.mergedBranches).toEqual(["feat-a"]);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-b" },
+            stack: stackData,
+            github: {
+              getPR: (branch: string) => {
+                const prs = {
+                  "feat-a": {
+                    number: 10,
+                    url: "https://github.com/test/repo/pull/10",
+                    state: "MERGED",
+                    base: "main",
+                    body: "Merged parent PR\n\n<!-- stacked -->old<!-- /stacked -->",
+                  },
+                  "feat-b": {
+                    number: 11,
+                    url: "https://github.com/test/repo/pull/11",
+                    state: "OPEN",
+                    base: "main",
+                    body: "Current PR body\n\n<!-- stacked -->old<!-- /stacked -->",
+                  },
+                  "feat-c": {
+                    number: 12,
+                    url: "https://github.com/test/repo/pull/12",
+                    state: "OPEN",
+                    base: "feat-b",
+                    body: "Child PR body\n\n<!-- stacked -->old<!-- /stacked -->",
+                  },
+                } as const;
+
+                return Effect.succeed(prs[branch as keyof typeof prs] ?? null);
+              },
+            },
           }),
           BunServices.layer,
         ),

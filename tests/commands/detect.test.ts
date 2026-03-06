@@ -1,8 +1,11 @@
 // @effect-diagnostics effect/strictEffectProvide:off
 import { describe, it, expect } from "effect-bun-test";
 import { test } from "bun:test";
-import { ConfigProvider, Effect } from "effect";
+import { BunServices } from "@effect/platform-bun";
+import { ConfigProvider, Effect, Layer } from "effect";
+import { Command } from "effect/unstable/cli";
 import { StackService } from "../../src/services/Stack.js";
+import { detect } from "../../src/commands/detect.js";
 import {
   DEFAULT_MAX_DETECT_BRANCHES,
   detectLimitConfig,
@@ -107,6 +110,46 @@ describe("detect command logic", () => {
       ),
     ),
   );
+
+  test("detect skips branches remembered as merged in stack metadata", async () => {
+    const program = Effect.gen(function* () {
+      const run = Command.runWith(detect, { version: "test" });
+
+      yield* run(["--dry-run", "--json"]);
+
+      const stacks = yield* StackService;
+      const data = yield* stacks.load();
+      const trunk = data.trunk;
+      const alreadyTracked = new Set(Object.values(data.stacks).flatMap((stack) => stack.branches));
+      const mergedBranches = new Set(data.mergedBranches ?? []);
+      const untracked = ["main", "feat-a", "feat-b"].filter(
+        (branch) => branch !== trunk && !alreadyTracked.has(branch) && !mergedBranches.has(branch),
+      );
+
+      expect(untracked).toEqual(["feat-b"]);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: {
+              currentBranch: "main",
+              allBranches: ["main", "feat-a", "feat-b"],
+              isAncestor: linearAncestry,
+            },
+            stack: {
+              version: 1,
+              trunk: "main",
+              stacks: {},
+              mergedBranches: ["feat-a"],
+            },
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
 
   it.effect("skips stack creation when name already exists", () =>
     Effect.gen(function* () {

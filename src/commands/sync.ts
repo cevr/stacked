@@ -1,8 +1,10 @@
 import { Command, Flag } from "effect/unstable/cli";
 import { Console, Effect, Option } from "effect";
 import { GitService } from "../services/Git.js";
+import { GitHubService } from "../services/GitHub.js";
 import { StackService } from "../services/Stack.js";
 import { ErrorCode, StackError } from "../errors/index.js";
+import { refreshStackedPRBodies } from "./helpers/pr-metadata.js";
 import { withSpinner, success, warn } from "../ui.js";
 
 const trunkFlag = Flag.string("trunk").pipe(
@@ -43,6 +45,7 @@ export const sync = Command.make("sync", {
   Command.withHandler(({ trunk: trunkOpt, from: fromOpt, json, dryRun }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
+      const gh = yield* GitHubService;
       const stacks = yield* StackService;
 
       const trunk = Option.isSome(trunkOpt) ? trunkOpt.value : yield* stacks.getTrunk();
@@ -171,6 +174,23 @@ export const sync = Command.make("sync", {
             ),
         ),
       );
+
+      const ghInstalled = yield* gh.isGhInstalled();
+      if (ghInstalled) {
+        const prMap = yield* refreshStackedPRBodies({
+          branches,
+          stackName: result.name,
+          gh,
+        });
+        const mergedBranches = branches.filter(
+          (branch) => (prMap.get(branch)?.state ?? "") === "MERGED",
+        );
+        const activeBranches = branches.filter(
+          (branch) => (prMap.get(branch)?.state ?? "") !== "MERGED",
+        );
+        yield* stacks.markMergedBranches(mergedBranches);
+        yield* stacks.unmarkMergedBranches(activeBranches);
+      }
 
       if (json) {
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off

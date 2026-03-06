@@ -65,9 +65,8 @@ describe("clean command logic", () => {
       expect(deleteCalls).toHaveLength(2);
 
       const updated = yield* stacks.load();
-      const remaining = updated.stacks["feat-a"];
-      expect(remaining).toBeDefined();
-      expect(remaining?.branches).toEqual(["feat-c"]);
+      expect(updated.stacks["feat-a"]).toBeUndefined();
+      expect(updated.stacks["feat-c"]?.branches).toEqual(["feat-c"]);
     }).pipe(
       Effect.provide(
         createTestLayer({

@@ -130,6 +130,7 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
             );
           if (deleted) {
             yield* stacks.removeBranch(stackName, branch);
+            yield* stacks.markMergedBranches([branch]);
             removed.push(branch);
             yield* success(`Removed ${branch} from ${stackName}`);
           }
