@@ -1,5 +1,13 @@
 # @cvr/stacked
 
+## 0.4.4
+
+### Patch Changes
+
+- [`8e7a73e`](https://github.com/cevr/stacked/commit/8e7a73edb67e4408bc5ac143e5cb5c8572b2c2b1) Thanks [@cevr](https://github.com/cevr)! - Default the git backend to `es-git` while keeping `STACKED_GIT_BACKEND=cli` as an escape hatch.
+
+- [`9a7e815`](https://github.com/cevr/stacked/commit/9a7e815504d3a9b7d2d6d23701f570d669fdd4ac) Thanks [@cevr](https://github.com/cevr)! - Migrate stack metadata to an explicit v2 parent-link format with automatic v1 upgrade, reroot surviving stacks when lower branches disappear, and speed up `detect` by switching from pairwise ancestor checks to first-parent history walks.
+
 ## 0.4.3
 
 ### Patch Changes
