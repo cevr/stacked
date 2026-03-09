@@ -111,7 +111,8 @@ export const GitEsLayer = Layer.effect(
             const ref = repo.findReference(`refs/remotes/${remote}/HEAD`);
             if (ref === null) return Option.none();
             const target = ref.resolve().shorthand();
-            return Option.some(target.replace(new RegExp(`^${remote}/`), ""));
+            const prefix = `${remote}/`;
+            return Option.some(target.startsWith(prefix) ? target.slice(prefix.length) : target);
           },
           catch: (error) => makeGitError(`es-git.remoteDefaultBranch ${remote}`, error),
         }).pipe(Effect.catchTag("GitError", () => Effect.succeed(Option.none()))),
@@ -127,13 +128,32 @@ export const GitEsLayer = Layer.effect(
           catch: (error) => makeGitError(`es-git.createBranch ${name}`, error),
         }).pipe(Effect.asVoid),
 
-      deleteBranch: (name) =>
-        Effect.try({
+      deleteBranch: (name, force) => {
+        // When force is false/undefined, shell out to `git branch -d` so git
+        // enforces "must be fully merged" check. es-git has no equivalent.
+        if (force !== true) {
+          return Effect.tryPromise({
+            try: async () => {
+              const proc = Bun.spawn(["git", "branch", "-d", "--", name], {
+                stdout: "pipe",
+                stderr: "pipe",
+              });
+              const exitCode = await proc.exited;
+              if (exitCode !== 0) {
+                const stderr = await new Response(proc.stderr).text();
+                throw new Error(stderr.trim() || `git branch -d failed with exit code ${exitCode}`);
+              }
+            },
+            catch: (error) => makeGitError(`es-git.deleteBranch ${name}`, error),
+          }).pipe(Effect.asVoid);
+        }
+        return Effect.try({
           try: () => {
             repo.getBranch(name, "Local").delete();
           },
           catch: (error) => makeGitError(`es-git.deleteBranch ${name}`, error),
-        }).pipe(Effect.asVoid),
+        }).pipe(Effect.asVoid);
+      },
 
       checkout: (name) =>
         Effect.try({
@@ -177,17 +197,34 @@ export const GitEsLayer = Layer.effect(
           catch: (error) => makeGitError("es-git.rebaseAbort", error),
         }).pipe(Effect.asVoid),
 
-      push: (branch, options) =>
-        Effect.tryPromise({
+      push: (branch, options) => {
+        // es-git's protocol has no --force-with-lease equivalent; shell out to git CLI
+        if (options?.force === true) {
+          return Effect.tryPromise({
+            try: async () => {
+              const proc = Bun.spawn(
+                ["git", "push", "--force-with-lease", "-u", "origin", branch],
+                { stdout: "pipe", stderr: "pipe" },
+              );
+              const exitCode = await proc.exited;
+              if (exitCode !== 0) {
+                const stderr = await new Response(proc.stderr).text();
+                throw new Error(stderr.trim() || `git push failed with exit code ${exitCode}`);
+              }
+            },
+            catch: (error) => makeGitError(`es-git.push ${branch}`, error),
+          }).pipe(Effect.asVoid);
+        }
+        return Effect.tryPromise({
           try: async () => {
             const remote = repo.getRemote("origin");
-            const forcePrefix = options?.force === true ? "+" : "";
-            await remote.push([`${forcePrefix}refs/heads/${branch}:refs/heads/${branch}`]);
+            await remote.push([`refs/heads/${branch}:refs/heads/${branch}`]);
             const localBranch = repo.findBranch(branch, "Local");
             localBranch?.setUpstream(`origin/${branch}`);
           },
           catch: (error) => makeGitError(`es-git.push ${branch}`, error),
-        }).pipe(Effect.asVoid),
+        }).pipe(Effect.asVoid);
+      },
 
       log: (branch, options) =>
         Effect.try({
@@ -274,8 +311,25 @@ export const GitEsLayer = Layer.effect(
           catch: (error) => makeGitError("es-git.isRebaseInProgress", error),
         }).pipe(Effect.catchTag("GitError", () => Effect.succeed(false))),
 
-      commitAmend: () =>
-        Effect.try({
+      commitAmend: (options) => {
+        // --edit requires an interactive editor; shell out to git CLI
+        if (options?.edit === true) {
+          return Effect.tryPromise({
+            try: async () => {
+              const proc = Bun.spawn(["git", "commit", "--amend"], {
+                stdin: "inherit",
+                stdout: "inherit",
+                stderr: "inherit",
+              });
+              const exitCode = await proc.exited;
+              if (exitCode !== 0) {
+                throw new Error(`git commit --amend failed with exit code ${exitCode}`);
+              }
+            },
+            catch: (error) => makeGitError("es-git.commitAmend", error),
+          }).pipe(Effect.asVoid);
+        }
+        return Effect.try({
           try: () => {
             const headOid = repo.head().target();
             if (headOid === null) {
@@ -287,7 +341,8 @@ export const GitEsLayer = Layer.effect(
             });
           },
           catch: (error) => makeGitError("es-git.commitAmend", error),
-        }).pipe(Effect.asVoid),
+        }).pipe(Effect.asVoid);
+      },
 
       fetch: (remote = "origin") =>
         Effect.tryPromise({

@@ -66,12 +66,14 @@ export const doctor = Command.make("doctor", { fix: fixFlag, json: jsonFlag }).p
       }
 
       // Check 2: all tracked branches exist in git
+      const allGitBranches = yield* git
+        .listBranches()
+        .pipe(Effect.catchTag("GitError", () => Effect.succeed([] as string[])));
+      const gitBranchSet = new Set(allGitBranches);
+
       for (const { name: stackName, stack } of stackEntries) {
         for (const branch of stack.branches) {
-          const exists = yield* git
-            .branchExists(branch)
-            .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
-          if (!exists) {
+          if (!gitBranchSet.has(branch)) {
             if (fix) {
               yield* stacks.removeBranch(branch);
               findings.push({

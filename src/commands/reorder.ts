@@ -32,12 +32,14 @@ export const reorder = Command.make("reorder", {
 
       if (Option.isNone(before) && Option.isNone(after)) {
         return yield* new StackError({
+          code: ErrorCode.USAGE_ERROR,
           message: "Specify --before or --after to indicate target position",
         });
       }
 
       if (Option.isSome(before) && Option.isSome(after)) {
         return yield* new StackError({
+          code: ErrorCode.USAGE_ERROR,
           message: "Specify either --before or --after, not both",
         });
       }

@@ -90,6 +90,17 @@ export const submit = Command.make("submit", {
       const trunk = yield* stacks.getTrunk();
       const currentBranch = yield* git.currentBranch();
       const { branches } = result.stack;
+      const data = yield* stacks.load();
+      const mergedSet = new Set(data.mergedBranches);
+
+      // Compute the effective base for a branch at index i, skipping merged branches
+      const effectiveBase = (i: number): string => {
+        for (let j = i - 1; j >= 0; j--) {
+          const candidate = branches[j];
+          if (candidate !== undefined && !mergedSet.has(candidate)) return candidate;
+        }
+        return trunk;
+      };
 
       const rawTitle = Option.isSome(titleOpt) ? titleOpt.value : undefined;
       const rawBody = Option.isSome(bodyOpt) ? bodyOpt.value : undefined;
@@ -106,11 +117,13 @@ export const submit = Command.make("submit", {
 
       if (titles !== undefined && titles.length !== branches.length) {
         return yield* new StackError({
+          code: ErrorCode.USAGE_ERROR,
           message: `--title has ${titles.length} values but stack has ${branches.length} branches`,
         });
       }
       if (bodies !== undefined && bodies.length !== branches.length) {
         return yield* new StackError({
+          code: ErrorCode.USAGE_ERROR,
           message: `--body has ${bodies.length} values but stack has ${branches.length} branches`,
         });
       }
@@ -132,19 +145,34 @@ export const submit = Command.make("submit", {
       const results: SubmitResult[] = [];
       const prMap = new Map<
         string,
-        { number: number; url: string; state: string; body?: string | null } | null
+        { number: number; url: string; state: string; base: string; body?: string | null } | null
       >();
+
+      // Pre-fetch all PR statuses in parallel
+      const activeBranches = only ? branches.filter((b) => b === currentBranch) : [...branches];
+      const prResults = yield* Effect.forEach(
+        activeBranches,
+        (branch) =>
+          gh.getPR(branch).pipe(
+            Effect.map((pr) => [branch, pr] as const),
+            Effect.catchTag("GitHubError", () => Effect.succeed([branch, null] as const)),
+          ),
+        { concurrency: 5 },
+      );
+      for (const [branch, pr] of prResults) {
+        prMap.set(branch, pr);
+      }
 
       for (let i = 0; i < branches.length; i++) {
         const branch = branches[i];
         if (branch === undefined) continue;
-        const base = i === 0 ? trunk : (branches[i - 1] ?? trunk);
+        const base = effectiveBase(i);
 
         // --only: skip branches that aren't current
         if (only && branch !== currentBranch) continue;
 
         if (dryRun) {
-          const existingPR = yield* gh.getPR(branch);
+          const existingPR = prMap.get(branch) ?? null;
           const action =
             existingPR === null
               ? "would-create"
@@ -166,8 +194,7 @@ export const submit = Command.make("submit", {
 
         yield* withSpinner(`Pushing ${branch}`, git.push(branch, { force: !noForce }));
 
-        const existingPR = yield* gh.getPR(branch);
-        prMap.set(branch, existingPR);
+        const existingPR = prMap.get(branch) ?? null;
 
         if (existingPR !== null) {
           if (existingPR.base !== base) {
@@ -205,7 +232,7 @@ export const submit = Command.make("submit", {
             body,
             draft,
           });
-          prMap.set(branch, { number: pr.number, url: pr.url, state: "OPEN" });
+          prMap.set(branch, { number: pr.number, url: pr.url, state: "OPEN", base });
           yield* success(`Created PR #${pr.number}: ${pr.url}`);
           results.push({
             branch,

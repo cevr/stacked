@@ -28,13 +28,23 @@ export const log = Command.make("log", { json: jsonFlag }).pipe(
 
       const trunk = yield* stacks.getTrunk();
       const { branches } = result.stack;
+      const data = yield* stacks.load();
+      const mergedSet = new Set(data.mergedBranches);
+
+      const effectiveBase = (i: number): string => {
+        for (let j = i - 1; j >= 0; j--) {
+          const candidate = branches[j];
+          if (candidate !== undefined && !mergedSet.has(candidate)) return candidate;
+        }
+        return trunk;
+      };
 
       if (json) {
         const entries = [];
         for (let i = 0; i < branches.length; i++) {
           const branch = branches[i];
           if (branch === undefined) continue;
-          const base = i === 0 ? trunk : (branches[i - 1] ?? trunk);
+          const base = effectiveBase(i);
           const commits = yield* git
             .log(`${base}..${branch}`, { oneline: true })
             .pipe(Effect.catchTag("GitError", () => Effect.succeed("")));
@@ -48,7 +58,7 @@ export const log = Command.make("log", { json: jsonFlag }).pipe(
       for (let i = 0; i < branches.length; i++) {
         const branch = branches[i];
         if (branch === undefined) continue;
-        const base = i === 0 ? trunk : (branches[i - 1] ?? trunk);
+        const base = effectiveBase(i);
         yield* Console.log(`\n── ${branch} ──`);
         const rangeLog = yield* git
           .log(`${base}..${branch}`, { oneline: true })

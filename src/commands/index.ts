@@ -25,7 +25,7 @@ import { amend } from "./amend.js";
 
 const root = Command.make("stacked").pipe(
   Command.withDescription(
-    "Branch-based stacked PR manager\n\nGlobal flags:\n  --verbose       Show detailed output\n  --quiet, -q     Suppress non-essential output\n  --no-color      Disable color output\n  --yes, -y       Skip confirmation prompts",
+    "Branch-based stacked PR manager\n\nGlobal flags:\n  --verbose, -v   Show detailed output\n  --quiet, -q     Suppress non-essential output\n  --no-color      Disable color output\n  --yes, -y       Skip confirmation prompts",
   ),
   Command.withExamples([
     { command: "stacked create feat-auth", description: "Create a new branch in the stack" },

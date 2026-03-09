@@ -99,17 +99,21 @@ export const refreshStackedPRBodies = ({
   getUserBody?: (branch: string, idx: number) => string | undefined;
 }) =>
   Effect.gen(function* () {
-    const prEntries = yield* Effect.all(
-      branches.map((branch) => {
+    const prEntries = yield* Effect.forEach(
+      branches,
+      (branch) => {
         const existing = initialPrMap?.get(branch);
         if (existing !== undefined) {
           return Effect.succeed([branch, existing] as const);
         }
         return gh.getPR(branch).pipe(Effect.map((pr) => [branch, pr] as const));
-      }),
+      },
+      { concurrency: 5 },
     );
     const prMap = new Map(prEntries);
 
+    // Collect all updates, then apply in parallel
+    const updates: Array<{ branch: string; body: string }> = [];
     for (let i = 0; i < branches.length; i++) {
       const branch = branches[i];
       if (branch === undefined) continue;
@@ -124,8 +128,12 @@ export const refreshStackedPRBodies = ({
         getUserBody?.(branch, i),
         metadata,
       );
-      yield* gh.updatePR({ branch, body });
+      updates.push({ branch, body });
     }
+
+    yield* Effect.forEach(updates, ({ branch, body }) => gh.updatePR({ branch, body }), {
+      concurrency: 5,
+    });
 
     return prMap;
   });

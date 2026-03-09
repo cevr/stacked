@@ -121,7 +121,10 @@ export class GitService extends ServiceMap.Service<
 
       remoteDefaultBranch: (remote = "origin") =>
         run(["symbolic-ref", "--quiet", "--short", `refs/remotes/${remote}/HEAD`]).pipe(
-          Effect.map((ref) => Option.some(ref.replace(new RegExp(`^${remote}/`), ""))),
+          Effect.map((ref) => {
+            const prefix = `${remote}/`;
+            return Option.some(ref.startsWith(prefix) ? ref.slice(prefix.length) : ref);
+          }),
           Effect.catchTag("GitError", () => Effect.succeed(Option.none())),
         ),
 
@@ -192,9 +195,28 @@ export class GitService extends ServiceMap.Service<
         ),
 
       commitAmend: (options) => {
-        const args = ["commit", "--amend"];
-        if (options?.edit !== true) args.push("--no-edit");
-        return run(args).pipe(Effect.asVoid);
+        if (options?.edit === true) {
+          // Interactive editor needs inherited stdio, not piped
+          return Effect.tryPromise({
+            try: async () => {
+              const proc = Bun.spawn(["git", "commit", "--amend"], {
+                stdin: "inherit",
+                stdout: "inherit",
+                stderr: "inherit",
+              });
+              const exitCode = await proc.exited;
+              if (exitCode !== 0) {
+                throw new Error(`git commit --amend failed with exit code ${exitCode}`);
+              }
+            },
+            catch: (e) =>
+              new GitError({
+                message: `Process failed: ${e}`,
+                command: "git commit --amend",
+              }),
+          }).pipe(Effect.asVoid);
+        }
+        return run(["commit", "--amend", "--no-edit"]).pipe(Effect.asVoid);
       },
 
       fetch: (remote) => run(["fetch", remote ?? "origin"]).pipe(Effect.asVoid),

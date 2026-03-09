@@ -50,6 +50,7 @@ export const deleteCmd = Command.make("delete", {
 
       if (idx < stack.branches.length - 1 && !force) {
         return yield* new StackError({
+          code: ErrorCode.HAS_CHILDREN,
           message: `Branch "${name}" has children. Use --force to delete anyway.`,
         });
       }

@@ -252,10 +252,8 @@ const rewriteStackBranches = (
     };
   }
 
-  const [root] = branches;
-  if (root === undefined) {
-    return data;
-  }
+  // branches.length > 0 guaranteed by the early return above
+  const root = branches[0] as string;
 
   return {
     ...data,
@@ -636,21 +634,19 @@ export class StackService extends ServiceMap.Service<
     readonly setTrunk: (name: string) => Effect.Effect<void, StackError>;
   }
 >()("@cvr/stacked/services/Stack/StackService") {
-  static layer: Layer.Layer<StackService, never, GitService> = Layer.effect(
+  static layer: Layer.Layer<StackService, StackError, GitService> = Layer.effect(
     StackService,
     Effect.gen(function* () {
       const git = yield* GitService;
 
-      const stackFilePath = Effect.fn("StackService.stackFilePath")(function* () {
-        const gitDir = yield* git
-          .revParse("--absolute-git-dir")
-          .pipe(
-            Effect.mapError(
-              (e) => new StackError({ message: `Not a git repository: ${e.message}` }),
-            ),
-          );
-        return `${gitDir}/stacked.json`;
-      });
+      // Resolve git dir once at construction time, then capture in closure
+      const gitDir = yield* git
+        .revParse("--absolute-git-dir")
+        .pipe(
+          Effect.mapError((e) => new StackError({ message: `Not a git repository: ${e.message}` })),
+        );
+      const resolvedStackFilePath = `${gitDir}/stacked.json`;
+      const stackFilePath = () => Effect.succeed(resolvedStackFilePath);
 
       const StackFileJson = Schema.fromJsonString(
         Schema.Union([StackFileV1Schema, StackFileV2Schema]),

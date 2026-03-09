@@ -19,6 +19,8 @@ export const ErrorCode = {
   STACK_EMPTY: "STACK_EMPTY",
   TRUNK_ERROR: "TRUNK_ERROR",
   STACK_EXISTS: "STACK_EXISTS",
+  USAGE_ERROR: "USAGE_ERROR",
+  HAS_CHILDREN: "HAS_CHILDREN",
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

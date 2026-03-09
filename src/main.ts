@@ -15,11 +15,11 @@ const version = typeof __VERSION__ !== "undefined" ? __VERSION__ : "dev";
 // Global Flags (parsed before CLI framework, stripped from argv)
 // ============================================================================
 
-const globalFlags = new Set(["--verbose", "--quiet", "-q", "--no-color", "--yes", "-y"]);
+const globalFlags = new Set(["--verbose", "-v", "--quiet", "-q", "--no-color", "--yes", "-y"]);
 const flagArgs = new Set(process.argv.filter((a) => globalFlags.has(a)));
 process.argv = process.argv.filter((a) => !globalFlags.has(a));
 
-const isVerbose = flagArgs.has("--verbose");
+const isVerbose = flagArgs.has("--verbose") || flagArgs.has("-v");
 const isQuiet = flagArgs.has("--quiet") || flagArgs.has("-q");
 const isNoColor = flagArgs.has("--no-color");
 const isYes = flagArgs.has("--yes") || flagArgs.has("-y");
@@ -53,16 +53,26 @@ const usageCodes = new Set([
   "ALREADY_AT_BOTTOM",
   "TRUNK_ERROR",
   "STACK_EXISTS",
+  "USAGE_ERROR",
+  "HAS_CHILDREN",
 ]);
 
-const handleKnownError = (e: { message: string; code?: string | undefined }) =>
-  Console.error(e.code !== undefined ? `Error [${e.code}]: ${e.message}` : e.message).pipe(
+const isJson = process.argv.includes("--json");
+
+const handleKnownError = (e: { message: string; code?: string | undefined }) => {
+  const exitCode = e.code !== undefined && usageCodes.has(e.code) ? 2 : 1;
+  const errorOutput = isJson
+    ? Console.log(JSON.stringify({ error: { code: e.code ?? null, message: e.message } }))
+    : Console.error(e.code !== undefined ? `Error [${e.code}]: ${e.message}` : e.message);
+
+  return errorOutput.pipe(
     Effect.andThen(
       Effect.sync(() => {
-        process.exitCode = e.code !== undefined && usageCodes.has(e.code) ? 2 : 1;
+        process.exitCode = exitCode;
       }),
     ),
   );
+};
 
 // @effect-diagnostics-next-line effect/strictEffectProvide:off
 BunRuntime.runMain(

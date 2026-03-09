@@ -37,7 +37,7 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
       const { untracked, skipped } = limitUntrackedBranches(untrackedAll, detectLimit);
 
       if (untracked.length === 0) {
-        yield* Console.error("No untracked branches found");
+        yield* info("No untracked branches found");
         return;
       }
 
@@ -50,8 +50,13 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
       const childOf = new Map<string, string>();
       const unclassified: string[] = [];
 
+      // Include both untracked and already-tracked branches in tip resolution
+      // so untracked branches can discover parents that are already in stacks
+      const trackedBranches = [...alreadyTracked];
+      const allCandidatesForTips = [...untracked, ...trackedBranches];
+
       const tipResults = yield* Effect.forEach(
-        untracked,
+        allCandidatesForTips,
         (branch) =>
           git.revParse(branch).pipe(
             Effect.map((oid) => [branch, oid] as const),
@@ -109,7 +114,7 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
       );
 
       // Build linear chains from trunk
-      // Find branches whose parent is trunk (chain roots)
+      // Find branches whose parent is trunk or a tracked branch (chain roots)
       const childrenByParent = new Map<string, string[]>();
       for (const branch of untracked) {
         const parent = childOf.get(branch);
@@ -119,17 +124,48 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
         childrenByParent.set(parent, children);
       }
 
+      // Branches whose parent is already tracked — extend existing stacks
+      const adoptions = new Map<string, string[]>(); // trackedParent → [children]
+      for (const branch of untracked) {
+        const parent = childOf.get(branch);
+        if (parent !== undefined && alreadyTracked.has(parent)) {
+          const siblings = childrenByParent.get(parent) ?? [];
+          if (siblings.length === 1) {
+            const existing = adoptions.get(parent) ?? [];
+            // Walk the chain from this branch
+            const chain = [branch];
+            let current = branch;
+            while (true) {
+              const children = childrenByParent.get(current) ?? [];
+              const child = children[0];
+              if (children.length === 1 && child !== undefined) {
+                chain.push(child);
+                current = child;
+              } else break;
+            }
+            adoptions.set(parent, [...existing, ...chain]);
+          }
+        }
+      }
+
       const chains: string[][] = [];
       const roots = childrenByParent.get(trunk) ?? [];
 
+      // Track branches consumed by adoptions so they're not double-counted
+      const adoptedBranches = new Set<string>();
+      for (const branches of adoptions.values()) {
+        for (const b of branches) adoptedBranches.add(b);
+      }
+
       for (const root of roots) {
+        if (adoptedBranches.has(root)) continue;
         const chain = [root];
         let current = root;
 
         while (true) {
           const children = childrenByParent.get(current) ?? [];
           const child = children[0];
-          if (children.length === 1 && child !== undefined) {
+          if (children.length === 1 && child !== undefined && !adoptedBranches.has(child)) {
             chain.push(child);
             current = child;
           } else {
@@ -150,14 +186,38 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
 
       if (json) {
         const stacksData = chains.map((chain) => ({ name: chain[0] ?? "", branches: chain }));
+        const adoptionData = [...adoptions.entries()].map(([parent, branches]) => ({
+          parent,
+          branches,
+        }));
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
-        yield* Console.log(JSON.stringify({ stacks: stacksData, forks }, null, 2));
+        yield* Console.log(
+          JSON.stringify({ stacks: stacksData, adoptions: adoptionData, forks }, null, 2),
+        );
         return;
       }
 
-      if (chains.length === 0) {
+      if (chains.length === 0 && adoptions.size === 0) {
         yield* info("No linear branch chains detected");
         return;
+      }
+
+      // Adopt branches into existing stacks
+      for (const [parent, branches] of adoptions) {
+        const parentStack = yield* stacks.findBranchStack(parent);
+        if (parentStack === null) continue;
+        for (const branch of branches) {
+          if (dryRun) {
+            yield* Console.error(
+              `Would adopt "${branch}" into stack "${parentStack.name}" after "${parent}"`,
+            );
+          } else {
+            yield* stacks.addBranch(parentStack.name, branch, parent);
+            yield* success(
+              `Adopted "${branch}" into stack "${parentStack.name}" after "${parent}"`,
+            );
+          }
+        }
       }
 
       for (const chain of chains) {
@@ -177,9 +237,8 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
       }
 
       if (dryRun) {
-        yield* Console.error(
-          `\n${chains.length} stack${chains.length === 1 ? "" : "s"} would be created`,
-        );
+        const total = chains.length + adoptions.size;
+        yield* Console.error(`\n${total} action${total === 1 ? "" : "s"} would be performed`);
       }
 
       if (forks.length > 0) {

@@ -4,7 +4,7 @@ import { GitService } from "../services/Git.js";
 import { GitHubService } from "../services/GitHub.js";
 import { StackService } from "../services/Stack.js";
 import { ErrorCode, StackError } from "../errors/index.js";
-import { success, warn, dim, confirm } from "../ui.js";
+import { success, warn, dim, confirm, info } from "../ui.js";
 
 const dryRunFlag = Flag.boolean("dry-run").pipe(
   Flag.withDescription("Show what would be removed without making changes"),
@@ -73,7 +73,7 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
           // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
           yield* Console.log(JSON.stringify({ removed: [], skipped: [] }, null, 2));
         } else {
-          yield* Console.error("Nothing to clean");
+          yield* info("Nothing to clean");
           if (skippedMerged.length > 0) {
             yield* warn(
               `${skippedMerged.length} merged branch${skippedMerged.length === 1 ? "" : "es"} skipped (non-merged branches below):`,
@@ -102,6 +102,7 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
       }
 
       const removed: string[] = [];
+      const failed: string[] = [];
 
       for (const { stackName, branch } of toRemove) {
         if (dryRun) {
@@ -130,9 +131,10 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
             );
           if (deleted) {
             yield* stacks.removeBranch(branch);
-            yield* stacks.markMergedBranches([branch]);
             removed.push(branch);
             yield* success(`Removed ${branch} from ${stackName}`);
+          } else {
+            failed.push(branch);
           }
         }
       }
@@ -140,7 +142,7 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
       if (json) {
         const skipped = skippedMerged.map((x) => x.branch);
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
-        yield* Console.log(JSON.stringify({ removed, skipped }, null, 2));
+        yield* Console.log(JSON.stringify({ removed, failed, skipped }, null, 2));
       } else if (dryRun) {
         yield* Console.error(
           `\n${toRemove.length} branch${toRemove.length === 1 ? "" : "es"} would be removed`,

@@ -2,7 +2,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { Console, Effect } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
-import { stdout } from "../ui.js";
+import { stdout, info } from "../ui.js";
 
 const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
 
@@ -24,7 +24,7 @@ export const stacks = Command.make("stacks", { json: jsonFlag }).pipe(
           // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
           yield* Console.log(JSON.stringify({ stacks: [] }));
         } else {
-          yield* Console.error("No stacks");
+          yield* info("No stacks");
         }
         return;
       }

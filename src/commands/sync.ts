@@ -72,6 +72,18 @@ export const sync = Command.make("sync", {
       }
 
       const { branches } = result.stack;
+      const data = yield* stacks.load();
+      const mergedSet = new Set(data.mergedBranches);
+
+      // Compute the effective base for a branch at index i, skipping merged branches
+      const effectiveBase = (i: number, fallback: string): string => {
+        for (let j = i - 1; j >= 0; j--) {
+          const candidate = branches[j];
+          if (candidate !== undefined && !mergedSet.has(candidate)) return candidate;
+        }
+        return fallback;
+      };
+
       const fromBranch = Option.isSome(fromOpt) ? fromOpt.value : undefined;
 
       let startIdx = 0;
@@ -101,7 +113,7 @@ export const sync = Command.make("sync", {
         for (let i = startIdx; i < branches.length; i++) {
           const branch = branches[i];
           if (branch === undefined) continue;
-          const base = i === 0 ? originTrunk : (branches[i - 1] ?? originTrunk);
+          const base = effectiveBase(i, originTrunk);
           results.push({ name: branch, action: "skipped", base });
           if (!json) {
             yield* Console.error(`Would rebase and force-push ${branch} onto ${base}`);
@@ -137,7 +149,7 @@ export const sync = Command.make("sync", {
         for (let i = startIdx; i < branches.length; i++) {
           const branch = branches[i];
           if (branch === undefined) continue;
-          const newBase = i === 0 ? originTrunk : (branches[i - 1] ?? originTrunk);
+          const newBase = effectiveBase(i, originTrunk);
 
           // Compute old base (merge-base of this branch and its parent) before rebasing
           const oldBase = yield* git

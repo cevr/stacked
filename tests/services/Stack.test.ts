@@ -178,4 +178,60 @@ describe("StackService", () => {
       ),
     ),
   );
+
+  it.effect("migrates v1 stack data to v2 format", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const data = yield* stacks.load();
+
+      // v2 should have branches map with parent pointers
+      expect(data.version).toBe(2);
+      expect(data.branches).toEqual({
+        "feat-a": { stack: "feat-a", parent: null },
+        "feat-b": { stack: "feat-a", parent: "feat-a" },
+        "feat-c": { stack: "feat-a", parent: "feat-b" },
+      });
+      expect(data.stacks).toEqual({
+        "feat-a": { root: "feat-a" },
+      });
+      expect(data.mergedBranches).toEqual([]);
+    }).pipe(Effect.provide(StackService.layerTest(initialData))),
+  );
+
+  it.effect("v1→v2 migration preserves merged branches and excludes tracked ones", () =>
+    Effect.gen(function* () {
+      const v1WithMerged: StackFile = {
+        version: 1,
+        trunk: "main",
+        stacks: {
+          "feat-a": { branches: ["feat-a", "feat-b"] },
+        },
+        mergedBranches: ["old-branch", "feat-a"],
+      };
+      const stacks = yield* StackService;
+      yield* stacks.save(v1WithMerged);
+      const data = yield* stacks.load();
+
+      // feat-a is tracked, so it should NOT appear in mergedBranches
+      expect(data.mergedBranches).toEqual(["old-branch"]);
+      expect(data.branches["feat-a"]).toEqual({ stack: "feat-a", parent: null });
+    }).pipe(Effect.provide(StackService.layerTest())),
+  );
+
+  it.effect("v1→v2 migration handles empty stacks gracefully", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const emptyV1: StackFile = {
+        version: 1,
+        trunk: "main",
+        stacks: {},
+      };
+      yield* stacks.save(emptyV1);
+      const data = yield* stacks.load();
+
+      expect(data.version).toBe(2);
+      expect(data.stacks).toEqual({});
+      expect(data.branches).toEqual({});
+    }).pipe(Effect.provide(StackService.layerTest())),
+  );
 });
