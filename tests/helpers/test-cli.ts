@@ -126,6 +126,7 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
           recorder
             .record({ service: "Git", method: "treeMergeSync", args: opts })
             .pipe(Effect.as({ action: "merged" as const })),
+        supportsTreeMerge: () => true,
       };
     }),
   );

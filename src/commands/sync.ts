@@ -134,7 +134,7 @@ export const sync = Command.make("sync", {
             if (alreadyIncorporated) {
               action = "up-to-date";
             } else {
-              action = rebaseOnly ? "rebased" : "merged";
+              action = !rebaseOnly && git.supportsTreeMerge() ? "merged" : "rebased";
             }
           }
 

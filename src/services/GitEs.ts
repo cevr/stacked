@@ -402,6 +402,8 @@ export const GitEsLayer = Layer.effect(
           catch: (error) =>
             makeGitError(`es-git.treeMergeSync ${branch} ${oldBase} ${newBase}`, error),
         }),
+
+      supportsTreeMerge: () => true,
     };
   }),
 );

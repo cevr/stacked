@@ -64,12 +64,22 @@ export const amend = Command.make("amend", {
       // Sync children using fork-point-aware algorithm
       const children = branches.slice(idx + 1);
       const synced: string[] = [];
+      const data = yield* stacks.load();
+      const mergedSet = new Set(data.mergedBranches);
 
       yield* Effect.gen(function* () {
         for (let i = 0; i < children.length; i++) {
           const branch = children[i];
           if (branch === undefined) continue;
-          const newBase = i === 0 ? fromBranch : (children[i - 1] ?? fromBranch);
+          // Compute effective base, skipping merged branches (same as sync)
+          let newBase = fromBranch;
+          for (let j = i - 1; j >= 0; j--) {
+            const candidate = children[j];
+            if (candidate !== undefined && !mergedSet.has(candidate)) {
+              newBase = candidate;
+              break;
+            }
+          }
 
           const newBaseTip = yield* git.revParse(newBase);
           const branchHead = yield* git.revParse(branch);

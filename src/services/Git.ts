@@ -44,6 +44,7 @@ export class GitService extends ServiceMap.Service<
       newBase: string;
       message: string;
     }) => Effect.Effect<{ action: "merged" | "up-to-date" | "conflict" }, GitError>;
+    readonly supportsTreeMerge: () => boolean;
   }
 >()("@cvr/stacked/services/Git/GitService") {
   static layer: Layer.Layer<GitService> = Layer.sync(GitService, () => {
@@ -232,6 +233,7 @@ export class GitService extends ServiceMap.Service<
         run(["push", "origin", "--delete", branch]).pipe(Effect.asVoid),
 
       treeMergeSync: () => Effect.succeed({ action: "conflict" as const }),
+      supportsTreeMerge: () => false,
     };
   });
 
@@ -259,6 +261,7 @@ export class GitService extends ServiceMap.Service<
       fetch: () => Effect.void,
       deleteRemoteBranch: () => Effect.void,
       treeMergeSync: () => Effect.succeed({ action: "conflict" as const }),
+      supportsTreeMerge: () => false,
       ...impl,
     });
 }

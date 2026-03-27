@@ -465,6 +465,7 @@ describe("sync command", () => {
           deleteRemoteBranch: () => Effect.void,
           // Always conflict → forces rebase fallback
           treeMergeSync: () => Effect.succeed({ action: "conflict" as const }),
+          supportsTreeMerge: () => true,
         };
       }),
     ).pipe(Layer.provide(recorderLayer));
@@ -544,6 +545,7 @@ describe("sync command", () => {
           fetch: () => recorder.record({ service: "Git", method: "fetch" }),
           deleteRemoteBranch: () => Effect.void,
           treeMergeSync: () => Effect.succeed({ action: "conflict" as const }),
+          supportsTreeMerge: () => false,
         };
       }),
     ).pipe(Layer.provide(recorderLayer));
