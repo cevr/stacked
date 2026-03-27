@@ -609,7 +609,7 @@ const makeStackService = ({
 
     updateSyncedOnto: Effect.fn("StackService.updateSyncedOnto")(function* (
       branch: string,
-      oid: string,
+      oid: string | null,
     ) {
       const data = yield* loadData();
       const record = data.branches[branch];
@@ -674,7 +674,10 @@ export class StackService extends ServiceMap.Service<
     ) => Effect.Effect<{ name: string; stack: Stack } | null, StackError>;
     readonly detectTrunkCandidate: () => Effect.Effect<Option.Option<string>, never>;
     readonly getSyncedOnto: (branch: string) => Effect.Effect<string | null, StackError>;
-    readonly updateSyncedOnto: (branch: string, oid: string) => Effect.Effect<void, StackError>;
+    readonly updateSyncedOnto: (
+      branch: string,
+      oid: string | null,
+    ) => Effect.Effect<void, StackError>;
     readonly getTrunk: () => Effect.Effect<string, StackError>;
     readonly setTrunk: (name: string) => Effect.Effect<void, StackError>;
   }

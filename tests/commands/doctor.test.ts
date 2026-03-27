@@ -5,8 +5,15 @@ import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer, Option } from "effect";
 import { Command } from "effect/unstable/cli";
 import { doctor } from "../../src/commands/doctor.js";
+import { GitService } from "../../src/services/Git.js";
+import { GitError } from "../../src/errors/index.js";
 import { StackService } from "../../src/services/Stack.js";
-import { createTestLayer } from "../helpers/test-cli.js";
+import {
+  CallRecorder,
+  createTestLayer,
+  createMockStackService,
+  createMockGitHubService,
+} from "../helpers/test-cli.js";
 
 describe("doctor command logic", () => {
   it.effect("detects stale branches not in git", () =>
@@ -190,6 +197,82 @@ describe("doctor command logic", () => {
           }),
           BunServices.layer,
         ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("doctor --fix clears stale syncedOnto entries", async () => {
+    const recorderLayer = CallRecorder.layer;
+
+    // Git mock that fails revParse for OID-like strings (stale syncedOnto)
+    const gitLayer = Layer.effect(
+      GitService,
+      Effect.gen(function* () {
+        const recorder = yield* CallRecorder;
+        return {
+          currentBranch: () => Effect.succeed("feat-a"),
+          listBranches: () => Effect.succeed(["main", "feat-a"]),
+          branchExists: (name: string) => Effect.succeed(name === "main" || name === "feat-a"),
+          remoteDefaultBranch: () => Effect.succeed(Option.none()),
+          createBranch: () => Effect.void,
+          deleteBranch: () => Effect.void,
+          checkout: () => Effect.void,
+          rebase: () => Effect.void,
+          rebaseOnto: () => Effect.void,
+          rebaseAbort: () => Effect.void,
+          push: () => Effect.void,
+          log: () => Effect.succeed(""),
+          isClean: () => Effect.succeed(true),
+          revParse: (ref: string) => {
+            // Fail for SHA-like refs (stale syncedOnto)
+            if (/^[0-9a-f]{7,}$/.test(ref)) {
+              return Effect.fail(
+                new GitError({ message: `bad revision '${ref}'`, command: `git rev-parse ${ref}` }),
+              );
+            }
+            return recorder
+              .record({ service: "Git", method: "revParse", args: { ref } })
+              .pipe(Effect.as(`oid-${ref}`));
+          },
+          isAncestor: () => Effect.succeed(false),
+          mergeBase: () => Effect.succeed("abc123"),
+          firstParentUniqueCommits: () => Effect.succeed([]),
+          isRebaseInProgress: () => Effect.succeed(false),
+          commitAmend: () => Effect.void,
+          fetch: () => Effect.void,
+          deleteRemoteBranch: () => Effect.void,
+          treeMergeSync: () => Effect.succeed({ action: "conflict" as const }),
+        };
+      }),
+    ).pipe(Layer.provide(recorderLayer));
+
+    const stackLayer = createMockStackService(
+      {
+        version: 2,
+        trunk: "main",
+        stacks: { "feat-a": { root: "feat-a" } },
+        branches: {
+          "feat-a": { stack: "feat-a", parent: null, syncedOnto: "deadbeef123456" },
+        },
+      },
+      { currentBranch: "feat-a" },
+    );
+    const ghLayer = createMockGitHubService().pipe(Layer.provide(recorderLayer));
+
+    const program = Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const run = Command.runWith(doctor, { version: "test" });
+
+      yield* run(["--fix"]);
+
+      // syncedOnto should have been cleared since the OID doesn't resolve
+      const syncedOnto = yield* stacks.getSyncedOnto("feat-a");
+      expect(syncedOnto).toBeNull();
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(recorderLayer, gitLayer, stackLayer, ghLayer, BunServices.layer),
       ),
     );
 

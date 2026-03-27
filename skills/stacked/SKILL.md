@@ -45,7 +45,7 @@ What do you need?
 | `stacked down`               | Move down one branch in the stack                                                           |
 | `stacked top`                | Jump to top of stack                                                                        |
 | `stacked bottom`             | Jump to bottom of stack                                                                     |
-| `stacked sync`               | Fetch + rebase + force-push stack on trunk (`--from`, `--dry-run`, `--json`)                |
+| `stacked sync`               | Fetch + sync stack on trunk (`--from`, `--dry-run`, `--rebase-only`, `--json`)              |
 | `stacked detect`             | Detect branch chains and register as stacks (`--dry-run`, `--json`)                         |
 | `stacked clean`              | Remove merged branches + remote branches (`--dry-run`, `--json`)                            |
 | `stacked delete <name>`      | Remove branch from stack + git + remote (`--keep-remote`, `--force`, `--dry-run`, `--json`) |
@@ -147,8 +147,9 @@ Fetch latest trunk, then incrementally sync the stack bottom-to-top using fork-p
 
 ```sh
 stacked sync
-stacked sync --dry-run    # preview sync plan without executing
-stacked sync --json       # structured output: { branches: [{ name, action, base }] }
+stacked sync --dry-run       # preview sync plan with predicted actions per branch
+stacked sync --rebase-only   # force rebase path (skip tree-merge)
+stacked sync --json          # structured output: { branches: [{ name, action, base }] }
 ```
 
 **How sync works:**
@@ -381,4 +382,5 @@ stacked down  # go to previous branch
 - Detached HEAD is detected and produces a clear error — checkout a branch first
 - Stack file writes are atomic (write to tmp, then rename) to prevent corruption
 - `create` and `adopt` are idempotent — safe to re-run after transient failures
-- Use `stacked doctor` to detect and fix metadata drift (stale branches, missing trunk)
+- Use `stacked doctor` to detect and fix metadata drift (stale branches, missing trunk, stale syncedOnto)
+- `stacked doctor --fix` clears stale `syncedOnto` entries pointing at non-existent commits

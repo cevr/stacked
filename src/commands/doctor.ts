@@ -8,7 +8,7 @@ const fixFlag = Flag.boolean("fix").pipe(Flag.withDescription("Auto-fix issues w
 const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
 
 interface Finding {
-  type: "stale_branch" | "missing_trunk" | "duplicate_branch" | "parse_error";
+  type: "stale_branch" | "missing_trunk" | "duplicate_branch" | "stale_fork_point" | "parse_error";
   message: string;
   fixed: boolean;
 }
@@ -106,6 +106,33 @@ export const doctor = Command.make("doctor", { fix: fixFlag, json: jsonFlag }).p
             message: `Branch "${branch}" appears in multiple stacks: ${stackNames.join(", ")}`,
             fixed: false,
           });
+        }
+      }
+
+      // Check 4: syncedOnto entries point at valid commits
+      for (const [branch, record] of Object.entries(data.branches)) {
+        if (record.syncedOnto == null) continue;
+        const valid = yield* git.revParse(record.syncedOnto).pipe(
+          Effect.as(true),
+          Effect.catchTag("GitError", () => Effect.succeed(false)),
+        );
+        if (!valid) {
+          if (fix) {
+            yield* stacks
+              .updateSyncedOnto(branch, null)
+              .pipe(Effect.catchTag("StackError", () => Effect.void));
+            findings.push({
+              type: "stale_fork_point",
+              message: `Cleared stale syncedOnto for "${branch}" (commit ${record.syncedOnto.slice(0, 7)} no longer exists)`,
+              fixed: true,
+            });
+          } else {
+            findings.push({
+              type: "stale_fork_point",
+              message: `Branch "${branch}" has stale syncedOnto (commit ${record.syncedOnto.slice(0, 7)} no longer exists)`,
+              fixed: false,
+            });
+          }
         }
       }
 

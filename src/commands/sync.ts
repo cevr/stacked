@@ -21,6 +21,9 @@ const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"
 const dryRunFlag = Flag.boolean("dry-run").pipe(
   Flag.withDescription("Show rebase plan without executing"),
 );
+const rebaseOnlyFlag = Flag.boolean("rebase-only").pipe(
+  Flag.withDescription("Force rebase path (skip tree-merge)"),
+);
 
 interface SyncResult {
   name: string;
@@ -33,6 +36,7 @@ export const sync = Command.make("sync", {
   from: fromFlag,
   json: jsonFlag,
   dryRun: dryRunFlag,
+  rebaseOnly: rebaseOnlyFlag,
 }).pipe(
   Command.withDescription(
     "Fetch, rebase, and force-push stack branches. Use --from to start from a branch.",
@@ -41,8 +45,9 @@ export const sync = Command.make("sync", {
     { command: "stacked sync", description: "Sync local trunk, then rebase entire stack on trunk" },
     { command: "stacked sync --from feat-auth", description: "Resume from a specific branch" },
     { command: "stacked sync --dry-run", description: "Preview rebase plan" },
+    { command: "stacked sync --rebase-only", description: "Force rebase (skip tree-merge)" },
   ]),
-  Command.withHandler(({ trunk: trunkOpt, from: fromOpt, json, dryRun }) =>
+  Command.withHandler(({ trunk: trunkOpt, from: fromOpt, json, dryRun, rebaseOnly }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const gh = yield* GitHubService;
@@ -105,18 +110,43 @@ export const sync = Command.make("sync", {
       const results: SyncResult[] = [];
 
       if (dryRun) {
-        results.push({ name: trunk, action: "skipped", base: originTrunk });
+        results.push({ name: trunk, action: "rebased", base: originTrunk });
         if (!json) {
-          yield* Console.error(`Would fetch and rebase ${trunk} onto ${originTrunk}`);
+          yield* Console.error(`${trunk}: rebase onto ${originTrunk}`);
         }
 
         for (let i = startIdx; i < branches.length; i++) {
           const branch = branches[i];
           if (branch === undefined) continue;
           const base = effectiveBase(i, originTrunk);
-          results.push({ name: branch, action: "skipped", base });
+
+          const newBaseTip = yield* git.revParse(base);
+          const branchHead = yield* git.revParse(branch);
+          const syncedOnto = yield* stacks.getSyncedOnto(branch);
+
+          let action: SyncResult["action"];
+          if (syncedOnto !== null && syncedOnto === newBaseTip) {
+            action = "up-to-date";
+          } else {
+            const alreadyIncorporated = yield* git
+              .isAncestor(newBaseTip, branchHead)
+              .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
+            if (alreadyIncorporated) {
+              action = "up-to-date";
+            } else {
+              action = rebaseOnly ? "rebased" : "merged";
+            }
+          }
+
+          results.push({ name: branch, action, base });
           if (!json) {
-            yield* Console.error(`Would rebase and force-push ${branch} onto ${base}`);
+            const verb =
+              action === "up-to-date"
+                ? "up-to-date"
+                : action === "merged"
+                  ? `tree-merge onto ${base}`
+                  : `rebase onto ${base}`;
+            yield* Console.error(`${branch}: ${verb}`);
           }
         }
 
@@ -124,9 +154,12 @@ export const sync = Command.make("sync", {
           // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
           yield* Console.log(JSON.stringify({ branches: results }, null, 2));
         } else {
-          yield* Console.error(
-            `\n${results.length} branch${results.length === 1 ? "" : "es"} would be rebased`,
-          );
+          const changed = results.filter((r) => r.action !== "up-to-date").length;
+          const skipped = results.filter((r) => r.action === "up-to-date").length;
+          const parts: string[] = [];
+          if (changed > 0) parts.push(`${changed} to sync`);
+          if (skipped > 0) parts.push(`${skipped} up-to-date`);
+          yield* Console.error(`\n${parts.join(", ")}`);
         }
         return;
       }
@@ -178,18 +211,22 @@ export const sync = Command.make("sync", {
               .mergeBase(branch, newBase)
               .pipe(Effect.catchTag("GitError", () => Effect.succeed(newBase))));
 
-          // Try tree-merge fast path first
-          const mergeResult = yield* git
-            .treeMergeSync({
-              branch,
-              branchHead,
-              oldBase,
-              newBase: newBaseTip,
-              message: `sync: incorporate changes from ${newBase}`,
-            })
-            .pipe(
-              Effect.catchTag("GitError", () => Effect.succeed({ action: "conflict" as const })),
-            );
+          // Try tree-merge fast path first (unless --rebase-only)
+          const mergeResult = rebaseOnly
+            ? ({ action: "conflict" } as const)
+            : yield* git
+                .treeMergeSync({
+                  branch,
+                  branchHead,
+                  oldBase,
+                  newBase: newBaseTip,
+                  message: `sync: incorporate changes from ${newBase}`,
+                })
+                .pipe(
+                  Effect.catchTag("GitError", () =>
+                    Effect.succeed({ action: "conflict" as const }),
+                  ),
+                );
 
           if (mergeResult.action === "merged") {
             yield* stacks.updateSyncedOnto(branch, newBaseTip);

@@ -168,6 +168,75 @@ describe("sync command", () => {
     await Effect.runPromise(program);
   });
 
+  test("sync --dry-run reads revParse and syncedOnto but does not mutate", async () => {
+    const stackDataWithSyncedOnto: StackFile = {
+      version: 2,
+      trunk: "main",
+      stacks: { "feat-a": { root: "feat-a" } },
+      branches: {
+        "feat-a": { stack: "feat-a", parent: null, syncedOnto: "oid-origin/main" },
+        "feat-b": { stack: "feat-a", parent: "feat-a" },
+      },
+    };
+
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(sync, { version: "test" });
+
+      yield* run(["--dry-run"]);
+
+      const calls = yield* recorder.calls;
+      // dry-run should read revParse to predict actions
+      expectCall(calls, "Git", "revParse");
+      // But still no mutations
+      expectNoCall(calls, "Git", "fetch");
+      expectNoCall(calls, "Git", "checkout");
+      expectNoCall(calls, "Git", "push");
+      expectNoCall(calls, "Git", "treeMergeSync");
+      expectNoCall(calls, "Git", "rebaseOnto");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-a" },
+            stack: stackDataWithSyncedOnto,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("sync --rebase-only forces rebase path", async () => {
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(sync, { version: "test" });
+
+      yield* run(["--rebase-only"]);
+
+      const calls = yield* recorder.calls;
+      // Should use rebaseOnto, NOT treeMergeSync
+      expectNoCall(calls, "Git", "treeMergeSync");
+      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-a" });
+      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-b" });
+      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-c" });
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-a", isAncestor: () => false },
+            stack: stackData,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
   test("sync skips merged branches when computing effective base", async () => {
     const mergedStackData: StackFile = {
       version: 2,
