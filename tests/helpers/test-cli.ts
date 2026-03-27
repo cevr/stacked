@@ -95,7 +95,7 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
         revParse: (ref: string) =>
           recorder
             .record({ service: "Git", method: "revParse", args: { ref } })
-            .pipe(Effect.as(".git")),
+            .pipe(Effect.as(`oid-${ref}`)),
         isAncestor: (ancestor: string, descendant: string) =>
           Effect.succeed(options.isAncestor?.(ancestor, descendant) ?? true),
         mergeBase: (a: string, b: string) =>
@@ -116,6 +116,16 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
         fetch: () => recorder.record({ service: "Git", method: "fetch" }),
         deleteRemoteBranch: (branch: string) =>
           recorder.record({ service: "Git", method: "deleteRemoteBranch", args: { branch } }),
+        treeMergeSync: (opts: {
+          branch: string;
+          branchHead: string;
+          oldBase: string;
+          newBase: string;
+          message: string;
+        }) =>
+          recorder
+            .record({ service: "Git", method: "treeMergeSync", args: opts })
+            .pipe(Effect.as({ action: "merged" as const })),
       };
     }),
   );

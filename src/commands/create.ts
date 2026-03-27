@@ -99,6 +99,10 @@ export const create = Command.make("create", {
         yield* stacks.addBranch(stackName, name, baseBranch === trunk ? undefined : baseBranch);
       }
 
+      // Record the fork-point for incremental sync
+      const baseTip = yield* git.revParse(baseBranch);
+      yield* stacks.updateSyncedOnto(name, baseTip);
+
       if (json) {
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
         yield* Console.log(

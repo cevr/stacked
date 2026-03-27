@@ -61,7 +61,7 @@ export const amend = Command.make("amend", {
         return;
       }
 
-      // Rebase children
+      // Sync children using fork-point-aware algorithm
       const children = branches.slice(idx + 1);
       const synced: string[] = [];
 
@@ -71,24 +71,50 @@ export const amend = Command.make("amend", {
           if (branch === undefined) continue;
           const newBase = i === 0 ? fromBranch : (children[i - 1] ?? fromBranch);
 
-          const oldBase = yield* git
-            .mergeBase(branch, newBase)
-            .pipe(Effect.catchTag("GitError", () => Effect.succeed(newBase)));
+          const newBaseTip = yield* git.revParse(newBase);
+          const branchHead = yield* git.revParse(branch);
+          const syncedOnto = yield* stacks.getSyncedOnto(branch);
 
-          yield* git.checkout(branch);
-          yield* withSpinner(
-            `Rebasing ${branch} onto ${newBase}`,
-            git.rebaseOnto(branch, newBase, oldBase),
-          ).pipe(
-            Effect.catchTag("GitError", (e) =>
-              Effect.fail(
-                new StackError({
-                  code: ErrorCode.REBASE_CONFLICT,
-                  message: `Rebase conflict on ${branch}: ${e.message}\n\nResolve conflicts, then run:\n  git rebase --continue`,
-                }),
+          // Resolve old base: prefer recorded fork-point, fall back to merge-base
+          const oldBase =
+            syncedOnto ??
+            (yield* git
+              .mergeBase(branch, newBase)
+              .pipe(Effect.catchTag("GitError", () => Effect.succeed(newBase))));
+
+          // Try tree-merge fast path
+          const mergeResult = yield* git
+            .treeMergeSync({
+              branch,
+              branchHead,
+              oldBase,
+              newBase: newBaseTip,
+              message: `sync: incorporate changes from ${newBase}`,
+            })
+            .pipe(
+              Effect.catchTag("GitError", () => Effect.succeed({ action: "conflict" as const })),
+            );
+
+          if (mergeResult.action === "merged" || mergeResult.action === "up-to-date") {
+            yield* stacks.updateSyncedOnto(branch, newBaseTip);
+          } else {
+            // Conflict — fall back to rebase with corrected oldBase
+            yield* git.checkout(branch);
+            yield* withSpinner(
+              `Rebasing ${branch} onto ${newBase}`,
+              git.rebaseOnto(branch, newBase, oldBase),
+            ).pipe(
+              Effect.catchTag("GitError", (e) =>
+                Effect.fail(
+                  new StackError({
+                    code: ErrorCode.REBASE_CONFLICT,
+                    message: `Rebase conflict on ${branch}: ${e.message}\n\nResolve conflicts, then run:\n  git rebase --continue`,
+                  }),
+                ),
               ),
-            ),
-          );
+            );
+            yield* stacks.updateSyncedOnto(branch, newBaseTip);
+          }
           synced.push(branch);
         }
       }).pipe(

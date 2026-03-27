@@ -24,7 +24,7 @@ const dryRunFlag = Flag.boolean("dry-run").pipe(
 
 interface SyncResult {
   name: string;
-  action: "rebased" | "skipped" | "up-to-date";
+  action: "rebased" | "merged" | "skipped" | "up-to-date";
   base: string;
 }
 
@@ -151,29 +151,75 @@ export const sync = Command.make("sync", {
           if (branch === undefined) continue;
           const newBase = effectiveBase(i, originTrunk);
 
-          // Compute old base (merge-base of this branch and its parent) before rebasing
-          const oldBase = yield* git
-            .mergeBase(branch, newBase)
-            .pipe(Effect.catchTag("GitError", () => Effect.succeed(newBase)));
+          const newBaseTip = yield* git.revParse(newBase);
+          const branchHead = yield* git.revParse(branch);
+          const syncedOnto = yield* stacks.getSyncedOnto(branch);
 
-          yield* git.checkout(branch);
-          yield* withSpinner(
-            `Rebasing ${branch} onto ${newBase}`,
-            git.rebaseOnto(branch, newBase, oldBase),
-          ).pipe(
-            Effect.catchTag("GitError", (e) => {
-              const hint =
-                i === 0 ? "stacked sync" : `stacked sync --from ${branches[i - 1] ?? trunk}`;
-              return Effect.fail(
-                new StackError({
-                  code: ErrorCode.REBASE_CONFLICT,
-                  message: `Rebase conflict on ${branch}: ${e.message}\n\nResolve conflicts, then run:\n  git rebase --continue\n  ${hint}`,
-                }),
-              );
-            }),
-          );
-          yield* withSpinner(`Pushing ${branch}`, git.push(branch, { force: true }));
-          results.push({ name: branch, action: "rebased", base: newBase });
+          // Skip if parent hasn't moved since last sync
+          if (syncedOnto !== null && syncedOnto === newBaseTip) {
+            results.push({ name: branch, action: "up-to-date", base: newBase });
+            continue;
+          }
+
+          // Skip if parent is already an ancestor of branch (manually synced)
+          const alreadyIncorporated = yield* git
+            .isAncestor(newBaseTip, branchHead)
+            .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
+          if (alreadyIncorporated) {
+            yield* stacks.updateSyncedOnto(branch, newBaseTip);
+            results.push({ name: branch, action: "up-to-date", base: newBase });
+            continue;
+          }
+
+          // Resolve old base: prefer recorded fork-point, fall back to merge-base
+          const oldBase =
+            syncedOnto ??
+            (yield* git
+              .mergeBase(branch, newBase)
+              .pipe(Effect.catchTag("GitError", () => Effect.succeed(newBase))));
+
+          // Try tree-merge fast path first
+          const mergeResult = yield* git
+            .treeMergeSync({
+              branch,
+              branchHead,
+              oldBase,
+              newBase: newBaseTip,
+              message: `sync: incorporate changes from ${newBase}`,
+            })
+            .pipe(
+              Effect.catchTag("GitError", () => Effect.succeed({ action: "conflict" as const })),
+            );
+
+          if (mergeResult.action === "merged") {
+            yield* stacks.updateSyncedOnto(branch, newBaseTip);
+            yield* withSpinner(`Pushing ${branch}`, git.push(branch, { force: true }));
+            results.push({ name: branch, action: "merged", base: newBase });
+          } else if (mergeResult.action === "up-to-date") {
+            yield* stacks.updateSyncedOnto(branch, newBaseTip);
+            results.push({ name: branch, action: "up-to-date", base: newBase });
+          } else {
+            // Conflict or unsupported backend — fall back to rebase with corrected oldBase
+            yield* git.checkout(branch);
+            yield* withSpinner(
+              `Rebasing ${branch} onto ${newBase}`,
+              git.rebaseOnto(branch, newBase, oldBase),
+            ).pipe(
+              Effect.catchTag("GitError", (e) => {
+                const hint =
+                  i === 0 ? "stacked sync" : `stacked sync --from ${branches[i - 1] ?? trunk}`;
+                return Effect.fail(
+                  new StackError({
+                    code: ErrorCode.REBASE_CONFLICT,
+                    message: `Rebase conflict on ${branch}: ${e.message}\n\nResolve conflicts, then run:\n  git rebase --continue\n  ${hint}`,
+                  }),
+                );
+              }),
+            );
+            yield* stacks.updateSyncedOnto(branch, newBaseTip);
+            yield* withSpinner(`Pushing ${branch}`, git.push(branch, { force: true }));
+            results.push({ name: branch, action: "rebased", base: newBase });
+          }
         }
       }).pipe(
         Effect.ensuring(

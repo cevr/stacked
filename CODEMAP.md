@@ -21,7 +21,9 @@
 
 ## Behavior Notes
 
-- `sync` is git-history operation: fetch, rebase branch chain in order, force-push each rebased branch.
+- `sync` uses incremental fork-point tracking: records `syncedOnto` (parent tip SHA) in metadata, skips unchanged branches, uses `mergeTrees` fast path (es-git) or corrected rebase (CLI) for changed branches.
 - `submit` is PR operation: push (again), create/update PRs, refresh stack metadata in PR bodies.
 - Commands assume linear stacks; forked branch trees are detected but intentionally not stacked.
 - `detect` now treats metadata as source of truth for managed branches and only infers parentage for untracked branches.
+- `amend` uses the same fork-point-aware sync algorithm for child rebases.
+- `create` and `adopt` record initial `syncedOnto` for accurate first sync.

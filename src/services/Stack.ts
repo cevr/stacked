@@ -22,6 +22,7 @@ const StackRecordSchema = Schema.Struct({
 const BranchRecordSchema = Schema.Struct({
   stack: Schema.String,
   parent: Schema.NullOr(Schema.String),
+  syncedOnto: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
 const StackFileV2Schema = Schema.Struct({
@@ -54,7 +55,14 @@ interface CanonicalStackFile {
   readonly trunk: string;
   readonly stacks: Readonly<Record<string, { readonly root: string }>>;
   readonly branches: Readonly<
-    Record<string, { readonly stack: string; readonly parent: string | null }>
+    Record<
+      string,
+      {
+        readonly stack: string;
+        readonly parent: string | null;
+        readonly syncedOnto?: string | null | undefined;
+      }
+    >
   >;
   readonly mergedBranches: readonly string[];
 }
@@ -224,7 +232,10 @@ const rewriteStackBranches = (
   stackName: string,
   branches: readonly string[],
 ): CanonicalStackFile => {
-  const nextBranches: Record<string, { stack: string; parent: string | null }> = {
+  const nextBranches: Record<
+    string,
+    { stack: string; parent: string | null; syncedOnto?: string | null }
+  > = {
     ...data.branches,
   };
 
@@ -237,9 +248,11 @@ const rewriteStackBranches = (
   for (let i = 0; i < branches.length; i++) {
     const branch = branches[i];
     if (branch === undefined) continue;
+    const existing = data.branches[branch];
     nextBranches[branch] = {
       stack: stackName,
       parent: i === 0 ? null : (branches[i - 1] ?? null),
+      ...(existing?.syncedOnto != null ? { syncedOnto: existing.syncedOnto } : {}),
     };
   }
 
@@ -274,7 +287,10 @@ const renameStackRefs = (
   if (stackRecord === undefined) return data;
 
   const { [oldName]: _, ...restStacks } = data.stacks;
-  const branches: Record<string, { stack: string; parent: string | null }> = {};
+  const branches: Record<
+    string,
+    { stack: string; parent: string | null; syncedOnto?: string | null }
+  > = {};
 
   for (const [branch, record] of Object.entries(data.branches)) {
     branches[branch] = {
@@ -584,6 +600,33 @@ const makeStackService = ({
       });
     }),
 
+    getSyncedOnto: Effect.fn("StackService.getSyncedOnto")(function* (branch: string) {
+      const data = yield* loadData();
+      const record = data.branches[branch];
+      if (record === undefined) return null;
+      return record.syncedOnto ?? null;
+    }),
+
+    updateSyncedOnto: Effect.fn("StackService.updateSyncedOnto")(function* (
+      branch: string,
+      oid: string,
+    ) {
+      const data = yield* loadData();
+      const record = data.branches[branch];
+      if (record === undefined) {
+        return yield* new StackError({
+          message: `Branch "${branch}" not found in stack metadata`,
+        });
+      }
+      yield* saveData({
+        ...data,
+        branches: {
+          ...data.branches,
+          [branch]: { ...record, syncedOnto: oid },
+        },
+      });
+    }),
+
     getTrunk: Effect.fn("StackService.getTrunk")(function* () {
       const data = yield* loadData();
       return data.trunk;
@@ -630,6 +673,8 @@ export class StackService extends ServiceMap.Service<
       branch: string,
     ) => Effect.Effect<{ name: string; stack: Stack } | null, StackError>;
     readonly detectTrunkCandidate: () => Effect.Effect<Option.Option<string>, never>;
+    readonly getSyncedOnto: (branch: string) => Effect.Effect<string | null, StackError>;
+    readonly updateSyncedOnto: (branch: string, oid: string) => Effect.Effect<void, StackError>;
     readonly getTrunk: () => Effect.Effect<string, StackError>;
     readonly setTrunk: (name: string) => Effect.Effect<void, StackError>;
   }

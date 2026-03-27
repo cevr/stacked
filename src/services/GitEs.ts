@@ -359,6 +359,49 @@ export const GitEsLayer = Layer.effect(
           },
           catch: (error) => makeGitError(`es-git.deleteRemoteBranch ${branch}`, error),
         }).pipe(Effect.asVoid),
+
+      treeMergeSync: ({ branch, branchHead, oldBase, newBase, message }) =>
+        Effect.try({
+          try: () => {
+            const oldBaseOid = resolveOid(repo, oldBase);
+            const newBaseOid = resolveOid(repo, newBase);
+            const branchHeadOid = resolveOid(repo, branchHead);
+
+            const oldBaseTree = repo.getCommit(oldBaseOid).tree();
+            const newBaseTree = repo.getCommit(newBaseOid).tree();
+            const branchTree = repo.getCommit(branchHeadOid).tree();
+
+            const index = repo.mergeTrees(oldBaseTree, newBaseTree, branchTree);
+
+            if (index.hasConflicts()) {
+              return { action: "conflict" as const };
+            }
+
+            const treeOid = index.writeTree();
+
+            // If the tree is unchanged, no commit needed
+            if (treeOid === repo.getCommit(branchHeadOid).treeId()) {
+              return { action: "up-to-date" as const };
+            }
+
+            const tree = repo.getTree(treeOid);
+            const signature = resolveSignature(repo);
+
+            repo.commit(tree, message, {
+              updateRef: refName(branch),
+              parents: [branchHeadOid, newBaseOid],
+              author: signature,
+              committer: signature,
+            });
+
+            // Update working tree to match the new commit
+            repo.checkoutHead();
+
+            return { action: "merged" as const };
+          },
+          catch: (error) =>
+            makeGitError(`es-git.treeMergeSync ${branch} ${oldBase} ${newBase}`, error),
+        }),
     };
   }),
 );

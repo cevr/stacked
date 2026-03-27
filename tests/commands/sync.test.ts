@@ -37,15 +37,15 @@ describe("sync command", () => {
       const calls = yield* recorder.calls;
       expectCall(calls, "Git", "fetch");
       expectCall(calls, "Git", "rebase", { onto: "origin/main" });
-      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-a", newBase: "origin/main" });
-      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-b", newBase: "feat-a" });
-      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-c", newBase: "feat-b" });
+      // With tree-merge mock returning "merged", branches use treeMergeSync path
+      expectCall(calls, "Git", "treeMergeSync");
       expectCall(calls, "Git", "push", { branch: "feat-a", force: true });
       expectCall(calls, "Git", "push", { branch: "feat-b", force: true });
       expectCall(calls, "Git", "push", { branch: "feat-c", force: true });
 
       const checkoutCalls = calls.filter((c) => c.service === "Git" && c.method === "checkout");
       expect(checkoutCalls[0]?.args).toEqual({ name: "main" });
+      // Final checkout restores original branch
       expect(checkoutCalls.at(-1)?.args).toEqual({ name: "feat-a" });
 
       const rebaseIndex = calls.findIndex(
@@ -54,19 +54,16 @@ describe("sync command", () => {
           c.method === "rebase" &&
           (c.args as { onto?: string } | undefined)?.onto === "origin/main",
       );
-      const firstBranchRebaseIndex = calls.findIndex(
-        (c) =>
-          c.service === "Git" &&
-          c.method === "rebaseOnto" &&
-          (c.args as { branch?: string } | undefined)?.branch === "feat-a",
+      const firstTreeMergeIndex = calls.findIndex(
+        (c) => c.service === "Git" && c.method === "treeMergeSync",
       );
       expect(rebaseIndex).toBeGreaterThan(-1);
-      expect(firstBranchRebaseIndex).toBeGreaterThan(rebaseIndex);
+      expect(firstTreeMergeIndex).toBeGreaterThan(rebaseIndex);
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
           createTestLayer({
-            git: { currentBranch: "feat-a" },
+            git: { currentBranch: "feat-a", isAncestor: () => false },
             stack: stackData,
           }),
           BunServices.layer,
@@ -77,7 +74,7 @@ describe("sync command", () => {
     await Effect.runPromise(program);
   });
 
-  test("sync returns to the starting branch after rebasing", async () => {
+  test("sync returns to the starting branch after syncing", async () => {
     const program = Effect.gen(function* () {
       const recorder = yield* CallRecorder;
       const run = Command.runWith(sync, { version: "test" });
@@ -86,18 +83,17 @@ describe("sync command", () => {
 
       const calls = yield* recorder.calls;
       const checkoutCalls = calls.filter((c) => c.service === "Git" && c.method === "checkout");
+      // Tree-merge path: checkout main for trunk rebase, then restore original branch
+      // No per-branch checkouts needed since treeMergeSync handles ref updates internally
       expect(checkoutCalls.map((c) => (c.args as { name: string }).name)).toEqual([
         "main",
-        "feat-a",
-        "feat-b",
-        "feat-c",
         "feat-b",
       ]);
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
           createTestLayer({
-            git: { currentBranch: "feat-b" },
+            git: { currentBranch: "feat-b", isAncestor: () => false },
             stack: stackData,
           }),
           BunServices.layer,
@@ -117,21 +113,23 @@ describe("sync command", () => {
 
       const calls = yield* recorder.calls;
       expectCall(calls, "Git", "rebase", { onto: "origin/main" });
-      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-b", newBase: "feat-a" });
-      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-c", newBase: "feat-b" });
 
-      const featARebaseCalls = calls.filter(
-        (c) =>
-          c.service === "Git" &&
-          c.method === "rebaseOnto" &&
-          (c.args as { branch?: string } | undefined)?.branch === "feat-a",
+      // feat-b and feat-c should be synced (via treeMergeSync), but not feat-a
+      const treeMergeCalls = calls.filter(
+        (c) => c.service === "Git" && c.method === "treeMergeSync",
       );
-      expect(featARebaseCalls).toHaveLength(0);
+      expect(treeMergeCalls.length).toBe(2);
+
+      // feat-a should not be synced at all
+      const featASync = treeMergeCalls.find(
+        (c) => (c.args as { branch?: string } | undefined)?.branch === "feat-a",
+      );
+      expect(featASync).toBeUndefined();
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
           createTestLayer({
-            git: { currentBranch: "feat-a" },
+            git: { currentBranch: "feat-a", isAncestor: () => false },
             stack: stackData,
           }),
           BunServices.layer,
@@ -170,7 +168,7 @@ describe("sync command", () => {
     await Effect.runPromise(program);
   });
 
-  test("sync skips merged branches when computing rebase base", async () => {
+  test("sync skips merged branches when computing effective base", async () => {
     const mergedStackData: StackFile = {
       version: 2,
       trunk: "main",
@@ -192,15 +190,23 @@ describe("sync command", () => {
       yield* run([]);
 
       const calls = yield* recorder.calls;
-      // feat-a is merged, so feat-b should rebase onto origin/main, not feat-a
-      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-b", newBase: "origin/main" });
-      // feat-c should still rebase onto feat-b (not merged)
-      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-c", newBase: "feat-b" });
+      // All three branches get synced via treeMergeSync
+      const treeMergeCalls = calls.filter(
+        (c) => c.service === "Git" && c.method === "treeMergeSync",
+      );
+      expect(treeMergeCalls.length).toBe(3);
+
+      // feat-a is merged, so feat-b's effective base should be origin/main (not feat-a)
+      const featBCall = treeMergeCalls.find(
+        (c) => (c.args as { branch?: string })?.branch === "feat-b",
+      );
+      // The newBase for feat-b should be the resolved OID of origin/main
+      expect((featBCall?.args as { newBase?: string })?.newBase).toBe("oid-origin/main");
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
           createTestLayer({
-            git: { currentBranch: "feat-b" },
+            git: { currentBranch: "feat-b", isAncestor: () => false },
             stack: mergedStackData,
           }),
           BunServices.layer,
@@ -278,10 +284,152 @@ describe("sync command", () => {
     await Effect.runPromise(program);
   });
 
+  test("sync skips branches when syncedOnto matches parent tip", async () => {
+    // Pre-populate syncedOnto so that the skip check triggers
+    const stackDataWithSyncedOnto: StackFile = {
+      version: 2,
+      trunk: "main",
+      stacks: { "feat-a": { root: "feat-a" } },
+      branches: {
+        "feat-a": { stack: "feat-a", parent: null, syncedOnto: "oid-origin/main" },
+        "feat-b": { stack: "feat-a", parent: "feat-a", syncedOnto: "oid-feat-a" },
+      },
+    };
+
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(sync, { version: "test" });
+
+      yield* run([]);
+
+      const calls = yield* recorder.calls;
+      // syncedOnto matches revParse(base) for both branches → skip
+      expectNoCall(calls, "Git", "treeMergeSync");
+      expectNoCall(calls, "Git", "rebaseOnto");
+      expectNoCall(calls, "Git", "push");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-a" },
+            stack: stackDataWithSyncedOnto,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("sync updates syncedOnto after successful tree-merge", async () => {
+    const program = Effect.gen(function* () {
+      const run = Command.runWith(sync, { version: "test" });
+      yield* run([]);
+
+      // After sync, syncedOnto should be populated for all branches
+      const stacks = yield* StackService;
+      const featASynced = yield* stacks.getSyncedOnto("feat-a");
+      const featBSynced = yield* stacks.getSyncedOnto("feat-b");
+      const featCSynced = yield* stacks.getSyncedOnto("feat-c");
+
+      // Should be set to the resolved OID of each branch's effective base
+      expect(featASynced).toBe("oid-origin/main");
+      expect(featBSynced).toBe("oid-feat-a");
+      expect(featCSynced).toBe("oid-feat-b");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-a", isAncestor: () => false },
+            stack: stackData,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("sync falls back to rebase on tree-merge conflict", async () => {
+    const recorderLayer = CallRecorder.layer;
+    let revParseCounter = 0;
+
+    const gitLayer = Layer.effect(
+      GitService,
+      Effect.gen(function* () {
+        const recorder = yield* CallRecorder;
+        return {
+          currentBranch: () =>
+            recorder.record({ service: "Git", method: "currentBranch" }).pipe(Effect.as("feat-a")),
+          listBranches: () => Effect.succeed([]),
+          branchExists: () => Effect.succeed(false),
+          remoteDefaultBranch: () => Effect.succeed(Option.none()),
+          createBranch: () => Effect.void,
+          deleteBranch: () => Effect.void,
+          checkout: (name: string) =>
+            recorder.record({ service: "Git", method: "checkout", args: { name } }),
+          rebase: (onto: string) =>
+            recorder.record({ service: "Git", method: "rebase", args: { onto } }),
+          rebaseOnto: (branch: string, newBase: string, oldBase: string) =>
+            recorder.record({
+              service: "Git",
+              method: "rebaseOnto",
+              args: { branch, newBase, oldBase },
+            }),
+          rebaseAbort: () => Effect.void,
+          push: (branch: string, opts?: { force?: boolean }) =>
+            recorder.record({ service: "Git", method: "push", args: { branch, ...opts } }),
+          log: () => Effect.succeed(""),
+          isClean: () => Effect.succeed(true),
+          revParse: () => Effect.succeed(`oid${revParseCounter++}`),
+          isAncestor: () => Effect.succeed(false),
+          mergeBase: (a: string, b: string) =>
+            recorder
+              .record({ service: "Git", method: "mergeBase", args: { a, b } })
+              .pipe(Effect.as("abc123")),
+          firstParentUniqueCommits: () => Effect.succeed([]),
+          isRebaseInProgress: () => Effect.succeed(false),
+          commitAmend: () => Effect.void,
+          fetch: () => recorder.record({ service: "Git", method: "fetch" }),
+          deleteRemoteBranch: () => Effect.void,
+          // Always conflict → forces rebase fallback
+          treeMergeSync: () => Effect.succeed({ action: "conflict" as const }),
+        };
+      }),
+    ).pipe(Layer.provide(recorderLayer));
+
+    const stackLayer = createMockStackService(stackData, { currentBranch: "feat-a" });
+    const ghLayer = createMockGitHubService().pipe(Layer.provide(recorderLayer));
+
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(sync, { version: "test" });
+
+      yield* run([]);
+
+      const calls = yield* recorder.calls;
+      // When treeMergeSync returns conflict, should fall back to rebaseOnto
+      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-a" });
+      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-b" });
+      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-c" });
+      // And still push
+      expectCall(calls, "Git", "push", { branch: "feat-a", force: true });
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(recorderLayer, gitLayer, stackLayer, ghLayer, BunServices.layer),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
   test("sync returns to original branch on rebaseOnto failure", async () => {
     const recorderLayer = CallRecorder.layer;
 
-    // Custom git mock that fails rebaseOnto for feat-b
+    // Custom git mock that fails rebaseOnto for feat-b and forces rebase fallback
+    let revParseCounter = 0;
     const gitLayer = Layer.effect(
       GitService,
       Effect.gen(function* () {
@@ -315,8 +463,8 @@ describe("sync command", () => {
             recorder.record({ service: "Git", method: "push", args: { branch, ...opts } }),
           log: () => Effect.succeed(""),
           isClean: () => Effect.succeed(true),
-          revParse: () => Effect.succeed(".git"),
-          isAncestor: () => Effect.succeed(true),
+          revParse: () => Effect.succeed(`oid${revParseCounter++}`),
+          isAncestor: () => Effect.succeed(false),
           mergeBase: (a: string, b: string) =>
             recorder
               .record({ service: "Git", method: "mergeBase", args: { a, b } })
@@ -326,6 +474,7 @@ describe("sync command", () => {
           commitAmend: () => Effect.void,
           fetch: () => recorder.record({ service: "Git", method: "fetch" }),
           deleteRemoteBranch: () => Effect.void,
+          treeMergeSync: () => Effect.succeed({ action: "conflict" as const }),
         };
       }),
     ).pipe(Layer.provide(recorderLayer));

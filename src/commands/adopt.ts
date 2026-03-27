@@ -87,6 +87,15 @@ export const adopt = Command.make("adopt", {
         yield* stacks.addBranch(result.name, branch, afterBranch);
       }
 
+      // Record fork-point for incremental sync based on the branch's merge-base with its parent
+      const parentRef = Option.isSome(after) ? after.value : yield* git.currentBranch();
+      const parentTip = yield* git
+        .mergeBase(branch, parentRef)
+        .pipe(Effect.catchTag("GitError", () => git.revParse(parentRef)));
+      yield* stacks
+        .updateSyncedOnto(branch, parentTip)
+        .pipe(Effect.catchTag("StackError", () => Effect.void));
+
       if (json) {
         const stackResult = yield* stacks.currentStack();
         const stackName = stackResult?.name ?? branch;
