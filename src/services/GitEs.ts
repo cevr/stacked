@@ -360,42 +360,34 @@ export const GitEsLayer = Layer.effect(
           catch: (error) => makeGitError(`es-git.deleteRemoteBranch ${branch}`, error),
         }).pipe(Effect.asVoid),
 
-      treeMergeSync: ({ branch, branchHead, oldBase, newBase, message }) =>
+      treeMergeSync: ({ branch, oldBase, newBase }) =>
         Effect.try({
           try: () => {
             const oldBaseOid = resolveOid(repo, oldBase);
             const newBaseOid = resolveOid(repo, newBase);
-            const branchHeadOid = resolveOid(repo, branchHead);
+            const branchRef = refName(branch);
 
+            // Pre-flight: check for conflicts via mergeTrees
             const oldBaseTree = repo.getCommit(oldBaseOid).tree();
             const newBaseTree = repo.getCommit(newBaseOid).tree();
+            const branchHeadOid = repo.getReference(branchRef).resolve().target();
+            if (branchHeadOid === null) {
+              return { action: "conflict" as const };
+            }
             const branchTree = repo.getCommit(branchHeadOid).tree();
 
             const index = repo.mergeTrees(oldBaseTree, newBaseTree, branchTree);
-
             if (index.hasConflicts()) {
               return { action: "conflict" as const };
             }
 
-            const treeOid = index.writeTree();
-
-            // If the tree is unchanged, no commit needed
-            if (treeOid === repo.getCommit(branchHeadOid).treeId()) {
+            // Check if anything actually changed
+            if (newBaseOid === oldBaseOid) {
               return { action: "up-to-date" as const };
             }
 
-            const tree = repo.getTree(treeOid);
-            const signature = resolveSignature(repo);
-
-            repo.commit(tree, message, {
-              updateRef: refName(branch),
-              parents: [branchHeadOid, newBaseOid],
-              author: signature,
-              committer: signature,
-            });
-
-            // Update working tree to match the new commit
-            repo.checkoutHead();
+            // Clean merge — execute via rebase (which handles tree writing properly)
+            performRebase(repo, branchRef, oldBaseOid, newBaseOid);
 
             return { action: "merged" as const };
           },
