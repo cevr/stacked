@@ -41,7 +41,7 @@ const writeFile = async (dir: string, name: string, content: string) => {
 /** Create a local git repo with an initial commit. */
 const initFixture = async (): Promise<string> => {
   const base = await mkdtemp(join(tmpdir(), "stacked-test-"));
-  git(base, "init", "repo");
+  git(base, "init", "-b", "main", "repo");
   const repo = join(base, "repo");
 
   await writeFile(repo, "README.md", "# test\n");
