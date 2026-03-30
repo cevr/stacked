@@ -7,7 +7,7 @@ export type GitBackend = "cli" | "es-git";
 export const DEFAULT_GIT_BACKEND: GitBackend = "es-git";
 
 export const resolveGitBackend = (value: string | undefined): GitBackend =>
-  value === "es-git" ? "es-git" : "cli";
+  value === "cli" ? "cli" : "es-git";
 
 export const gitServiceLayerForBackend = (backend: GitBackend) =>
   backend === "es-git" ? GitEsLayer : GitService.layer;

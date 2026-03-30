@@ -43,8 +43,19 @@ export class GitService extends ServiceMap.Service<
       oldBase: string;
       newBase: string;
       message: string;
-    }) => Effect.Effect<{ action: "merged" | "up-to-date" | "conflict" }, GitError>;
+    }) => Effect.Effect<{ action: "rebased" | "up-to-date" | "conflict" }, GitError>;
     readonly supportsTreeMerge: () => boolean;
+    readonly prepareConflictMerge: (opts: {
+      branch: string;
+      oldBase: string;
+      newBase: string;
+    }) => Effect.Effect<{ files: string[] }, GitError>;
+    readonly finalizeConflictMerge: (opts: {
+      branch: string;
+      newBase: string;
+      message: string;
+    }) => Effect.Effect<void, GitError>;
+    readonly abortConflictMerge: () => Effect.Effect<void, GitError>;
   }
 >()("@cvr/stacked/services/Git/GitService") {
   static layer: Layer.Layer<GitService> = Layer.sync(GitService, () => {
@@ -234,6 +245,44 @@ export class GitService extends ServiceMap.Service<
 
       treeMergeSync: () => Effect.succeed({ action: "conflict" as const }),
       supportsTreeMerge: () => false,
+
+      prepareConflictMerge: ({ branch, newBase }) =>
+        run(["checkout", branch]).pipe(
+          Effect.andThen(() => run(["merge", "--no-commit", "--no-ff", newBase])),
+          // merge exits non-zero on conflicts — that's expected
+          Effect.catchTag("GitError", () => Effect.void),
+          Effect.andThen(() =>
+            run(["diff", "--name-only", "--diff-filter=U"]).pipe(
+              Effect.map((output) => ({
+                files: output
+                  .split("\n")
+                  .map((f) => f.trim())
+                  .filter((f) => f.length > 0),
+              })),
+            ),
+          ),
+        ),
+
+      finalizeConflictMerge: ({ message }) =>
+        run(["diff", "--name-only", "--diff-filter=U"]).pipe(
+          Effect.andThen((output) => {
+            const unresolved = output
+              .split("\n")
+              .map((f) => f.trim())
+              .filter((f) => f.length > 0);
+            if (unresolved.length > 0) {
+              return Effect.fail(
+                new GitError({
+                  message: `Unresolved conflicts: ${unresolved.join(", ")}`,
+                  command: "git merge --continue",
+                }),
+              );
+            }
+            return run(["commit", "--no-edit", "-m", message]).pipe(Effect.asVoid);
+          }),
+        ),
+
+      abortConflictMerge: () => run(["merge", "--abort"]).pipe(Effect.asVoid),
     };
   });
 
@@ -262,6 +311,9 @@ export class GitService extends ServiceMap.Service<
       deleteRemoteBranch: () => Effect.void,
       treeMergeSync: () => Effect.succeed({ action: "conflict" as const }),
       supportsTreeMerge: () => false,
+      prepareConflictMerge: () => Effect.succeed({ files: [] }),
+      finalizeConflictMerge: () => Effect.void,
+      abortConflictMerge: () => Effect.void,
       ...impl,
     });
 }

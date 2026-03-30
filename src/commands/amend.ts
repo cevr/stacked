@@ -1,9 +1,10 @@
 import { Command, Flag } from "effect/unstable/cli";
 import { Console, Effect, Option } from "effect";
+import { rename, writeFile } from "node:fs/promises";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { ErrorCode, StackError } from "../errors/index.js";
-import { success, withSpinner } from "../ui.js";
+import { success } from "../ui.js";
 
 const editFlag = Flag.boolean("edit").pipe(Flag.withDescription("Open editor for commit message"));
 const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
@@ -11,6 +12,29 @@ const fromFlag = Flag.string("from").pipe(
   Flag.optional,
   Flag.withDescription("Start syncing from this branch (defaults to current)"),
 );
+
+interface SyncState {
+  version: 1;
+  conflictedBranch: string;
+  newBaseTip: string;
+  oldBase: string;
+  stackName: string;
+  originalBranch: string;
+  remainingBranches: string[];
+}
+
+const syncStatePath = (gitDir: string) => `${gitDir}/stacked-sync-state.json`;
+
+const writeSyncState = (gitDir: string, state: SyncState) =>
+  Effect.tryPromise({
+    try: async () => {
+      const path = syncStatePath(gitDir);
+      const tmpPath = `${path}.tmp`;
+      await writeFile(tmpPath, JSON.stringify(state, null, 2));
+      await rename(tmpPath, path);
+    },
+    catch: () => new StackError({ message: "Failed to write sync state" }),
+  }).pipe(Effect.asVoid);
 
 export const amend = Command.make("amend", {
   edit: editFlag,
@@ -66,6 +90,7 @@ export const amend = Command.make("amend", {
       const synced: string[] = [];
       const data = yield* stacks.load();
       const mergedSet = new Set(data.mergedBranches);
+      const gitDir = yield* git.revParse("--absolute-git-dir");
 
       yield* Effect.gen(function* () {
         for (let i = 0; i < children.length; i++) {
@@ -105,39 +130,43 @@ export const amend = Command.make("amend", {
               Effect.catchTag("GitError", () => Effect.succeed({ action: "conflict" as const })),
             );
 
-          if (mergeResult.action === "merged" || mergeResult.action === "up-to-date") {
+          if (mergeResult.action === "rebased" || mergeResult.action === "up-to-date") {
             yield* stacks.updateSyncedOnto(branch, newBaseTip);
           } else {
-            // Conflict — fall back to rebase with corrected oldBase
-            yield* git.checkout(branch);
-            yield* withSpinner(
-              `Rebasing ${branch} onto ${newBase}`,
-              git.rebaseOnto(branch, newBase, oldBase),
-            ).pipe(
-              Effect.catchTag("GitError", (e) =>
-                Effect.fail(
-                  new StackError({
-                    code: ErrorCode.REBASE_CONFLICT,
-                    message: `Rebase conflict on ${branch}: ${e.message}\n\nResolve conflicts, then run:\n  git rebase --continue`,
-                  }),
+            // Conflict — prepare merge with conflict markers in worktree
+            const { files } = yield* git
+              .prepareConflictMerge({ branch, oldBase, newBase: newBaseTip })
+              .pipe(
+                Effect.catchTag("GitError", (e) =>
+                  Effect.fail(
+                    new StackError({
+                      code: ErrorCode.SYNC_CONFLICT,
+                      message: `Failed to prepare conflict merge on ${branch}: ${e.message}`,
+                    }),
+                  ),
                 ),
-              ),
-            );
-            yield* stacks.updateSyncedOnto(branch, newBaseTip);
+              );
+
+            // Write resume state so `stacked sync --continue` can resume
+            yield* writeSyncState(gitDir, {
+              version: 1,
+              conflictedBranch: branch,
+              newBaseTip,
+              oldBase,
+              stackName: result.name,
+              originalBranch: currentBranch,
+              remainingBranches: children.slice(i + 1),
+            });
+
+            const fileList = files.length > 0 ? `\n${files.map((f) => `  ${f}`).join("\n")}` : "";
+            return yield* new StackError({
+              code: ErrorCode.SYNC_CONFLICT,
+              message: `Conflict on ${branch} (${files.length} file${files.length === 1 ? "" : "s"}):${fileList}\n\nResolve conflicts, then:\n  git add <resolved-files> && stacked sync --continue\n\nOr abort:\n  stacked sync --abort`,
+            });
           }
           synced.push(branch);
         }
-      }).pipe(
-        Effect.ensuring(
-          git
-            .isRebaseInProgress()
-            .pipe(
-              Effect.andThen((inProgress) =>
-                inProgress ? Effect.void : git.checkout(currentBranch).pipe(Effect.ignore),
-              ),
-            ),
-        ),
-      );
+      }).pipe(Effect.ensuring(git.checkout(currentBranch).pipe(Effect.ignore)));
 
       if (json) {
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off

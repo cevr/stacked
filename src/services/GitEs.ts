@@ -376,7 +376,8 @@ export const GitEsLayer = Layer.effect(
             }
             const branchTree = repo.getCommit(branchHeadOid).tree();
 
-            const index = repo.mergeTrees(oldBaseTree, newBaseTree, branchTree);
+            // ancestor=oldBase, ours=branch (destination), theirs=newBase (incoming)
+            const index = repo.mergeTrees(oldBaseTree, branchTree, newBaseTree);
             if (index.hasConflicts()) {
               return { action: "conflict" as const };
             }
@@ -389,13 +390,107 @@ export const GitEsLayer = Layer.effect(
             // Clean merge — execute via rebase (which handles tree writing properly)
             performRebase(repo, branchRef, oldBaseOid, newBaseOid);
 
-            return { action: "merged" as const };
+            return { action: "rebased" as const };
           },
           catch: (error) =>
             makeGitError(`es-git.treeMergeSync ${branch} ${oldBase} ${newBase}`, error),
         }),
 
       supportsTreeMerge: () => true,
+
+      prepareConflictMerge: ({ branch, oldBase, newBase }) =>
+        Effect.try({
+          try: () => {
+            const oldBaseOid = resolveOid(repo, oldBase);
+            const newBaseOid = resolveOid(repo, newBase);
+            const branchRef = refName(branch);
+
+            const oldBaseTree = repo.getCommit(oldBaseOid).tree();
+            const newBaseTree = repo.getCommit(newBaseOid).tree();
+            const branchHeadOid = repo.getReference(branchRef).resolve().target();
+            if (branchHeadOid === null) {
+              throw new Error(`Branch ${branch} has no target`);
+            }
+            const branchTree = repo.getCommit(branchHeadOid).tree();
+
+            // ancestor=oldBase, ours=branch (destination), theirs=newBase (incoming)
+            const index = repo.mergeTrees(oldBaseTree, branchTree, newBaseTree);
+
+            // Checkout branch and write conflict markers to worktree
+            repo.setHead(branchRef);
+            repo.checkoutIndex(index, {
+              allowConflicts: true,
+              conflictStyleDiff3: true,
+              safe: true,
+            });
+
+            // Extract conflicted file paths from index entries
+            // Stage is encoded in flags bits 12-13: (flags >> 12) & 0x3
+            // Stage 0 = normal, stages 1-3 = conflict (base, ours, theirs)
+            const files: string[] = [];
+            const seen = new Set<string>();
+            for (const entry of index.entries()) {
+              const stage = (entry.flags >> 12) & 0x3;
+              const path = entry.path.toString();
+              if (stage > 0 && !seen.has(path)) {
+                seen.add(path);
+                files.push(path);
+              }
+            }
+
+            return { files };
+          },
+          catch: (error) =>
+            makeGitError(`es-git.prepareConflictMerge ${branch} ${oldBase} ${newBase}`, error),
+        }),
+
+      finalizeConflictMerge: ({ branch, newBase, message }) =>
+        Effect.try({
+          try: () => {
+            const branchRef = refName(branch);
+            const branchHeadOid = repo.getReference(branchRef).resolve().target();
+            if (branchHeadOid === null) {
+              throw new Error(`Branch ${branch} has no target`);
+            }
+            const newBaseOid = resolveOid(repo, newBase);
+
+            // Read repo index — user has staged resolved files via git add
+            const index = repo.index();
+            if (index.hasConflicts()) {
+              throw new Error(
+                "Unresolved conflicts remain. Resolve all conflicts and stage with git add.",
+              );
+            }
+
+            const treeOid = index.writeTree();
+            const tree = repo.getTree(treeOid);
+            const signature = resolveSignature(repo);
+
+            // Create merge commit: first parent = branch head, second parent = new base
+            const commitOid = repo.commit(tree, message, {
+              updateRef: branchRef,
+              author: signature,
+              committer: signature,
+              parents: [branchHeadOid, newBaseOid],
+            });
+
+            // Update HEAD to the new commit
+            repo.setHead(branchRef);
+            repo.checkoutHead({ force: true });
+
+            return commitOid;
+          },
+          catch: (error) =>
+            makeGitError(`es-git.finalizeConflictMerge ${branch} ${newBase}`, error),
+        }).pipe(Effect.asVoid),
+
+      abortConflictMerge: () =>
+        Effect.try({
+          try: () => {
+            repo.checkoutHead({ force: true });
+          },
+          catch: (error) => makeGitError("es-git.abortConflictMerge", error),
+        }).pipe(Effect.asVoid),
     };
   }),
 );

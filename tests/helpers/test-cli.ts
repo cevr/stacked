@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Effect, Layer, Option, Ref, ServiceMap } from "effect";
 import { GitService } from "../../src/services/Git.js";
 import { StackService } from "../../src/services/Stack.js";
@@ -92,10 +95,14 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
         log: (_branch: string, _opts?: { limit?: number; oneline?: boolean }) =>
           Effect.succeed("abc123 some commit"),
         isClean: () => Effect.succeed(options.isClean ?? true),
-        revParse: (ref: string) =>
-          recorder
-            .record({ service: "Git", method: "revParse", args: { ref } })
-            .pipe(Effect.as(`oid-${ref}`)),
+        revParse: (() => {
+          const testGitDir = mkdtempSync(join(tmpdir(), "stacked-test-"));
+          return (ref: string) =>
+            recorder.record({ service: "Git", method: "revParse", args: { ref } }).pipe(
+              // Return a unique temp dir for git-dir lookups so sync state files are isolated
+              Effect.as(ref === "--absolute-git-dir" ? testGitDir : `oid-${ref}`),
+            );
+        })(),
         isAncestor: (ancestor: string, descendant: string) =>
           Effect.succeed(options.isAncestor?.(ancestor, descendant) ?? true),
         mergeBase: (a: string, b: string) =>
@@ -125,8 +132,18 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
         }) =>
           recorder
             .record({ service: "Git", method: "treeMergeSync", args: opts })
-            .pipe(Effect.as({ action: "merged" as const })),
+            .pipe(Effect.as({ action: "rebased" as const })),
         supportsTreeMerge: () => true,
+        prepareConflictMerge: (opts: { branch: string; oldBase: string; newBase: string }) =>
+          recorder
+            .record({ service: "Git", method: "prepareConflictMerge", args: opts })
+            .pipe(Effect.as({ files: [] })),
+        finalizeConflictMerge: (opts: { branch: string; newBase: string; message: string }) =>
+          recorder
+            .record({ service: "Git", method: "finalizeConflictMerge", args: opts })
+            .pipe(Effect.asVoid),
+        abortConflictMerge: () =>
+          recorder.record({ service: "Git", method: "abortConflictMerge" }).pipe(Effect.asVoid),
       };
     }),
   );

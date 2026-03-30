@@ -1,5 +1,7 @@
 import { Command, Flag } from "effect/unstable/cli";
 import { Console, Effect, Option } from "effect";
+import { existsSync } from "node:fs";
+import { unlink } from "node:fs/promises";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { success, warn } from "../ui.js";
@@ -8,7 +10,13 @@ const fixFlag = Flag.boolean("fix").pipe(Flag.withDescription("Auto-fix issues w
 const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
 
 interface Finding {
-  type: "stale_branch" | "missing_trunk" | "duplicate_branch" | "stale_fork_point" | "parse_error";
+  type:
+    | "stale_branch"
+    | "missing_trunk"
+    | "duplicate_branch"
+    | "stale_fork_point"
+    | "stale_sync_state"
+    | "parse_error";
   message: string;
   fixed: boolean;
 }
@@ -130,6 +138,34 @@ export const doctor = Command.make("doctor", { fix: fixFlag, json: jsonFlag }).p
             findings.push({
               type: "stale_fork_point",
               message: `Branch "${branch}" has stale syncedOnto (commit ${record.syncedOnto.slice(0, 7)} no longer exists)`,
+              fixed: false,
+            });
+          }
+        }
+      }
+
+      // Check 5: stale sync state file from interrupted conflict merge
+      const gitDir = yield* git
+        .revParse("--absolute-git-dir")
+        .pipe(Effect.catchTag("GitError", () => Effect.succeed("")));
+      if (gitDir !== "") {
+        const syncStatePath = `${gitDir}/stacked-sync-state.json`;
+        if (existsSync(syncStatePath)) {
+          if (fix) {
+            yield* Effect.tryPromise({
+              try: () => unlink(syncStatePath),
+              catch: () => ({ _tag: "UnlinkError" as const }),
+            }).pipe(Effect.ignore);
+            findings.push({
+              type: "stale_sync_state",
+              message: "Removed stale sync state file (interrupted conflict merge)",
+              fixed: true,
+            });
+          } else {
+            findings.push({
+              type: "stale_sync_state",
+              message:
+                "Stale sync state file found — an interrupted conflict merge may need 'stacked sync --continue' or 'stacked sync --abort'",
               fixed: false,
             });
           }

@@ -199,7 +199,7 @@ describe("sync integration fixtures", () => {
     const newBaseTree = esRepo.getCommit(featANewTip).tree();
     const branchTree = esRepo.getCommit(esRepo.revparseSingle("feat-b")).tree();
 
-    const index = esRepo.mergeTrees(oldBaseTree, newBaseTree, branchTree);
+    const index = esRepo.mergeTrees(oldBaseTree, branchTree, newBaseTree);
     expect(index.hasConflicts()).toBe(true);
   });
 
@@ -559,7 +559,7 @@ export const UserSchema = Schema.Struct({
     const oldTree = esRepo.getCommit(featATip).tree();
     const newTree = esRepo.getCommit(featANewTip).tree();
     const branchTree = esRepo.getCommit(esRepo.revparseSingle("feat-b")).tree();
-    const index = esRepo.mergeTrees(oldTree, newTree, branchTree);
+    const index = esRepo.mergeTrees(oldTree, branchTree, newTree);
 
     // Adjacent edits to the same import block may or may not conflict depending
     // on exact line spacing. Either outcome is valid — what matters is that the
@@ -635,7 +635,7 @@ export const UserSchema = Schema.Struct({
     const oldTree = esRepo.getCommit(featATip).tree();
     const newTree = esRepo.getCommit(featANewTip).tree();
     const branchTree = esRepo.getCommit(esRepo.revparseSingle("feat-b")).tree();
-    const index = esRepo.mergeTrees(oldTree, newTree, branchTree);
+    const index = esRepo.mergeTrees(oldTree, branchTree, newTree);
 
     expect(index.hasConflicts()).toBe(true);
   });
@@ -722,5 +722,135 @@ export const parseDate = (s: string) => new Date(s);
 
     expect(utils).not.toContain("<<<<<<<");
     expect(routes).not.toContain("<<<<<<<");
+  });
+
+  // =========================================================================
+  // Fixture 11: Conflict → prepareConflictMerge → resolve → finalizeConflictMerge
+  // =========================================================================
+  test("conflict merge: prepare writes markers, finalize creates merge commit", async () => {
+    // Setup: main → feat-a → feat-b, both edit same line in shared.txt
+    git(repo, "checkout", "-b", "feat-a");
+    await writeFile(repo, "shared.txt", "line 1\nline 2\nline 3\n");
+    git(repo, "add", "shared.txt");
+    git(repo, "commit", "-m", "add shared.txt");
+    const featATip = git(repo, "rev-parse", "feat-a");
+
+    git(repo, "checkout", "-b", "feat-b");
+    await writeFile(repo, "shared.txt", "line 1\nmodified by feat-b\nline 3\n");
+    git(repo, "add", "shared.txt");
+    git(repo, "commit", "-m", "feat-b edits shared.txt");
+    const featBHead = git(repo, "rev-parse", "feat-b");
+
+    // Now modify the same line on feat-a (creates conflict)
+    git(repo, "checkout", "feat-a");
+    await writeFile(repo, "shared.txt", "line 1\nmodified by feat-a\nline 3\n");
+    git(repo, "add", "shared.txt");
+    git(repo, "commit", "-m", "feat-a also edits shared.txt");
+    const featANewTip = git(repo, "rev-parse", "feat-a");
+
+    const esRepo = await openRepository(repo);
+
+    // Step 1: Verify conflict is detected
+    const oldBaseTree = esRepo.getCommit(featATip).tree();
+    const branchTree = esRepo.getCommit(featBHead).tree();
+    const newBaseTree = esRepo.getCommit(featANewTip).tree();
+    const index = esRepo.mergeTrees(oldBaseTree, branchTree, newBaseTree);
+    expect(index.hasConflicts()).toBe(true);
+
+    // Step 2: prepareConflictMerge — checkout feat-b and write conflict markers
+    esRepo.setHead("refs/heads/feat-b");
+    esRepo.checkoutIndex(index, {
+      allowConflicts: true,
+      conflictStyleDiff3: true,
+      safe: true,
+    });
+
+    // Verify conflict markers are in the worktree
+    const conflicted = await Bun.file(join(repo, "shared.txt")).text();
+    expect(conflicted).toContain("<<<<<<<");
+    expect(conflicted).toContain(">>>>>>>");
+
+    // Step 3: Resolve the conflict manually
+    await writeFile(repo, "shared.txt", "line 1\nresolved content\nline 3\n");
+
+    // Step 4: Stage the resolved file and finalize the merge commit
+    // Read the repo index, add the resolved file, write tree, create merge commit
+    const repoIndex = esRepo.index();
+    repoIndex.addPath("shared.txt");
+    expect(repoIndex.hasConflicts()).toBe(false);
+
+    const treeOid = repoIndex.writeTree();
+    const tree = esRepo.getTree(treeOid);
+    const sig = { name: "Test", email: "test@test.com" };
+
+    esRepo.commit(tree, "sync: merge feat-a into feat-b", {
+      updateRef: "refs/heads/feat-b",
+      author: sig,
+      committer: sig,
+      parents: [featBHead, featANewTip],
+    });
+
+    // Update HEAD and checkout to clean state
+    esRepo.setHead("refs/heads/feat-b");
+    esRepo.checkoutHead({ force: true });
+
+    // Step 5: Verify the merge commit has 2 parents
+    const parentLine = git(repo, "log", "-1", "--format=%P", "feat-b");
+    const parentOids = parentLine.split(" ");
+    expect(parentOids).toHaveLength(2);
+    expect(parentOids[0]).toBe(featBHead);
+    expect(parentOids[1]).toBe(featANewTip);
+
+    // Verify resolved content is in the merge commit
+    const resolvedContent = showFile(repo, "feat-b", "shared.txt");
+    expect(resolvedContent).toContain("resolved content");
+    expect(resolvedContent).not.toContain("<<<<<<<");
+  });
+
+  // =========================================================================
+  // Fixture 12: Child syncs cleanly after parent got a merge commit
+  // =========================================================================
+  test("child branch syncs cleanly after parent receives merge commit", async () => {
+    // Setup: main → feat-a → feat-b → feat-c
+    git(repo, "checkout", "-b", "feat-a");
+    await writeFile(repo, "a.txt", "feature a\n");
+    git(repo, "add", "a.txt");
+    git(repo, "commit", "-m", "add a.txt");
+    const featATipBefore = git(repo, "rev-parse", "feat-a");
+
+    git(repo, "checkout", "-b", "feat-b");
+    await writeFile(repo, "b.txt", "feature b\n");
+    git(repo, "add", "b.txt");
+    git(repo, "commit", "-m", "add b.txt");
+    const featBTipBefore = git(repo, "rev-parse", "feat-b");
+
+    git(repo, "checkout", "-b", "feat-c");
+    await writeFile(repo, "c.txt", "feature c\n");
+    git(repo, "add", "c.txt");
+    git(repo, "commit", "-m", "add c.txt");
+
+    // Simulate feat-a getting a merge commit (as if sync resolved a conflict)
+    git(repo, "checkout", "feat-a");
+    await writeFile(repo, "a.txt", "feature a updated\n");
+    git(repo, "add", "a.txt");
+    git(repo, "commit", "-m", "update a.txt");
+    const featANewTip = git(repo, "rev-parse", "feat-a");
+
+    // Rebase feat-b onto feat-a's new tip (simulating sync)
+    const esRepo = await openRepository(repo);
+    performRebase(esRepo, "feat-b", featATipBefore, featANewTip);
+    const featBNewTip = git(repo, "rev-parse", "feat-b");
+
+    // Now sync feat-c onto feat-b's new tip
+    performRebase(esRepo, "feat-c", featBTipBefore, featBNewTip);
+
+    // feat-c should have all files: a.txt (updated), b.txt, c.txt
+    const cFiles = filesAt(repo, "feat-c");
+    expect(cFiles).toContain("a.txt");
+    expect(cFiles).toContain("b.txt");
+    expect(cFiles).toContain("c.txt");
+
+    const aContent = showFile(repo, "feat-c", "a.txt");
+    expect(aContent).toBe("feature a updated");
   });
 });

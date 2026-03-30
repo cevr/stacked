@@ -1,11 +1,16 @@
 import { Command, Flag } from "effect/unstable/cli";
-import { Console, Effect, Option } from "effect";
+import { Console, Effect, Option, type ServiceMap } from "effect";
+import { existsSync } from "node:fs";
+import { readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { GitService } from "../services/Git.js";
 import { GitHubService } from "../services/GitHub.js";
 import { StackService } from "../services/Stack.js";
 import { ErrorCode, StackError } from "../errors/index.js";
 import { refreshStackedPRBodies } from "./helpers/pr-metadata.js";
 import { withSpinner, success, warn } from "../ui.js";
+
+type GitApi = ServiceMap.Service.Shape<typeof GitService>;
+type StackApi = ServiceMap.Service.Shape<typeof StackService>;
 
 const trunkFlag = Flag.string("trunk").pipe(
   Flag.optional,
@@ -21,22 +26,66 @@ const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"
 const dryRunFlag = Flag.boolean("dry-run").pipe(
   Flag.withDescription("Show rebase plan without executing"),
 );
-const rebaseOnlyFlag = Flag.boolean("rebase-only").pipe(
-  Flag.withDescription("Force rebase path (skip tree-merge)"),
+const continueFlag = Flag.boolean("continue").pipe(
+  Flag.withDescription("Continue sync after resolving conflicts"),
+);
+const abortFlag = Flag.boolean("abort").pipe(
+  Flag.withDescription("Abort sync and discard conflict markers"),
 );
 
 interface SyncResult {
   name: string;
-  action: "rebased" | "merged" | "skipped" | "up-to-date";
+  action: "rebased" | "synced" | "skipped" | "up-to-date";
   base: string;
 }
+
+interface SyncState {
+  version: 1;
+  conflictedBranch: string;
+  newBaseTip: string;
+  oldBase: string;
+  stackName: string;
+  originalBranch: string;
+  remainingBranches: string[];
+}
+
+const syncStatePath = (gitDir: string) => `${gitDir}/stacked-sync-state.json`;
+
+const readSyncState = (gitDir: string): Effect.Effect<SyncState | null> =>
+  Effect.tryPromise({
+    try: async () => {
+      const path = syncStatePath(gitDir);
+      if (!existsSync(path)) return null;
+      const content = await readFile(path, "utf-8");
+      return JSON.parse(content) as SyncState;
+    },
+    catch: () => new StackError({ message: "Failed to read sync state" }),
+  }).pipe(Effect.catch(() => Effect.succeed(null)));
+
+const writeSyncState = (gitDir: string, state: SyncState) =>
+  Effect.tryPromise({
+    try: async () => {
+      const path = syncStatePath(gitDir);
+      const tmpPath = `${path}.tmp`;
+      await writeFile(tmpPath, JSON.stringify(state, null, 2));
+      await rename(tmpPath, path);
+    },
+    catch: () => new StackError({ message: "Failed to write sync state" }),
+  }).pipe(Effect.asVoid);
+
+const deleteSyncState = (gitDir: string) =>
+  Effect.tryPromise({
+    try: () => unlink(syncStatePath(gitDir)),
+    catch: () => new StackError({ message: "Failed to delete sync state" }),
+  }).pipe(Effect.ignore);
 
 export const sync = Command.make("sync", {
   trunk: trunkFlag,
   from: fromFlag,
   json: jsonFlag,
   dryRun: dryRunFlag,
-  rebaseOnly: rebaseOnlyFlag,
+  continue: continueFlag,
+  abort: abortFlag,
 }).pipe(
   Command.withDescription(
     "Fetch, rebase, and force-push stack branches. Use --from to start from a branch.",
@@ -45,254 +94,435 @@ export const sync = Command.make("sync", {
     { command: "stacked sync", description: "Sync local trunk, then rebase entire stack on trunk" },
     { command: "stacked sync --from feat-auth", description: "Resume from a specific branch" },
     { command: "stacked sync --dry-run", description: "Preview rebase plan" },
-    { command: "stacked sync --rebase-only", description: "Force rebase (skip tree-merge)" },
+    { command: "stacked sync --continue", description: "Continue after resolving conflicts" },
+    { command: "stacked sync --abort", description: "Abort sync and discard conflict markers" },
   ]),
-  Command.withHandler(({ trunk: trunkOpt, from: fromOpt, json, dryRun, rebaseOnly }) =>
-    Effect.gen(function* () {
-      const git = yield* GitService;
-      const gh = yield* GitHubService;
-      const stacks = yield* StackService;
+  Command.withHandler(
+    ({ trunk: trunkOpt, from: fromOpt, json, dryRun, continue: continueMode, abort: abortMode }) =>
+      Effect.gen(function* () {
+        const git = yield* GitService;
+        const gh = yield* GitHubService;
+        const stacks = yield* StackService;
 
-      const trunk = Option.isSome(trunkOpt) ? trunkOpt.value : yield* stacks.getTrunk();
-      const originTrunk = `origin/${trunk}`;
-      const currentBranch = yield* git.currentBranch();
+        const gitDir = yield* git.revParse("--absolute-git-dir");
 
-      if (!dryRun) {
-        const clean = yield* git.isClean();
-        if (!clean) {
-          return yield* new StackError({
-            code: ErrorCode.DIRTY_WORKTREE,
-            message: "Working tree has uncommitted changes. Commit or stash before syncing.",
-          });
-        }
-      }
-
-      const result = yield* stacks.currentStack();
-      if (result === null) {
-        return yield* new StackError({
-          code: ErrorCode.NOT_IN_STACK,
-          message:
-            "Not on a stacked branch. Run 'stacked list' to see your stacks, or 'stacked create <name>' to start one.",
-        });
-      }
-
-      const { branches } = result.stack;
-      const data = yield* stacks.load();
-      const mergedSet = new Set(data.mergedBranches);
-
-      // Compute the effective base for a branch at index i, skipping merged branches
-      const effectiveBase = (i: number, fallback: string): string => {
-        for (let j = i - 1; j >= 0; j--) {
-          const candidate = branches[j];
-          if (candidate !== undefined && !mergedSet.has(candidate)) return candidate;
-        }
-        return fallback;
-      };
-
-      const fromBranch = Option.isSome(fromOpt) ? fromOpt.value : undefined;
-
-      let startIdx = 0;
-      if (fromBranch !== undefined) {
-        const idx = branches.indexOf(fromBranch);
-        if (idx === -1) {
-          return yield* new StackError({
-            code: ErrorCode.BRANCH_NOT_FOUND,
-            message: `Branch "${fromBranch}" not found in stack`,
-          });
-        }
-        startIdx = idx + 1;
-        if (startIdx >= branches.length) {
-          yield* warn(`Nothing to sync — ${fromBranch} is the last branch in the stack`);
+        // --abort: discard conflict markers and restore original branch
+        if (abortMode) {
+          const state = yield* readSyncState(gitDir);
+          if (state === null) {
+            return yield* new StackError({
+              code: ErrorCode.USAGE_ERROR,
+              message: "No sync in progress. Nothing to abort.",
+            });
+          }
+          yield* git.abortConflictMerge();
+          yield* git.checkout(state.originalBranch).pipe(Effect.ignore);
+          yield* deleteSyncState(gitDir);
+          yield* success("Sync aborted");
           return;
         }
-      }
 
-      const results: SyncResult[] = [];
+        // --continue: finalize conflict merge and resume syncing remaining branches
+        if (continueMode) {
+          const state = yield* readSyncState(gitDir);
+          if (state === null) {
+            return yield* new StackError({
+              code: ErrorCode.USAGE_ERROR,
+              message: "No sync in progress. Nothing to continue.",
+            });
+          }
 
-      if (dryRun) {
-        results.push({ name: trunk, action: "rebased", base: originTrunk });
-        if (!json) {
-          yield* Console.error(`${trunk}: rebase onto ${originTrunk}`);
-        }
+          const { conflictedBranch, newBaseTip, stackName, originalBranch, remainingBranches } =
+            state;
 
-        for (let i = startIdx; i < branches.length; i++) {
-          const branch = branches[i];
-          if (branch === undefined) continue;
-          const base = effectiveBase(i, originTrunk);
+          yield* withSpinner(
+            `Finalizing merge on ${conflictedBranch}`,
+            git.finalizeConflictMerge({
+              branch: conflictedBranch,
+              newBase: newBaseTip,
+              message: `sync: merge parent changes into ${conflictedBranch}`,
+            }),
+          );
+          yield* stacks.updateSyncedOnto(conflictedBranch, newBaseTip);
+          yield* withSpinner(
+            `Pushing ${conflictedBranch}`,
+            git.push(conflictedBranch, { force: true }),
+          );
+          yield* deleteSyncState(gitDir);
 
-          const newBaseTip = yield* git.revParse(base);
-          const branchHead = yield* git.revParse(branch);
-          const syncedOnto = yield* stacks.getSyncedOnto(branch);
+          const results: SyncResult[] = [
+            { name: conflictedBranch, action: "synced", base: "parent" },
+          ];
 
-          let action: SyncResult["action"];
-          if (syncedOnto !== null && syncedOnto === newBaseTip) {
-            action = "up-to-date";
-          } else {
-            const alreadyIncorporated = yield* git
-              .isAncestor(newBaseTip, branchHead)
-              .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
-            if (alreadyIncorporated) {
-              action = "up-to-date";
+          // Continue syncing remaining branches
+          if (remainingBranches.length > 0) {
+            const trunk = Option.isSome(trunkOpt) ? trunkOpt.value : yield* stacks.getTrunk();
+            const originTrunk = `origin/${trunk}`;
+            const stackResult = yield* stacks.findBranchStack(conflictedBranch);
+            if (stackResult === null) {
+              yield* warn(
+                `Stack not found for "${conflictedBranch}" — skipping remaining branches`,
+              );
             } else {
-              action = !rebaseOnly && git.supportsTreeMerge() ? "merged" : "rebased";
+              const allBranches = stackResult.stack.branches;
+              const data = yield* stacks.load();
+              const mergedSet = new Set(data.mergedBranches);
+
+              const effectiveBase = (branch: string): string => {
+                const idx = allBranches.indexOf(branch);
+                for (let j = idx - 1; j >= 0; j--) {
+                  const candidate = allBranches[j];
+                  if (candidate !== undefined && !mergedSet.has(candidate)) return candidate;
+                }
+                return originTrunk;
+              };
+
+              yield* Effect.gen(function* () {
+                for (const branch of remainingBranches) {
+                  const syncResult = yield* syncOneBranch({
+                    git,
+                    stacks,
+                    branch,
+                    effectiveBase: effectiveBase(branch),
+                    gitDir,
+                    originalBranch,
+                    allBranches,
+                    remainingBranches: remainingBranches.slice(
+                      remainingBranches.indexOf(branch) + 1,
+                    ),
+                    stackName,
+                  });
+                  results.push(syncResult);
+                }
+              }).pipe(
+                Effect.ensuring(
+                  git
+                    .isRebaseInProgress()
+                    .pipe(
+                      Effect.andThen((inProgress) =>
+                        inProgress ? Effect.void : git.checkout(originalBranch).pipe(Effect.ignore),
+                      ),
+                    ),
+                ),
+              );
+            }
+          } else {
+            yield* git.checkout(originalBranch).pipe(Effect.ignore);
+          }
+
+          // Refresh PR bodies
+          const ghInstalled = yield* gh.isGhInstalled();
+          if (ghInstalled) {
+            const stackResult = yield* stacks.findBranchStack(conflictedBranch);
+            if (stackResult !== null) {
+              yield* refreshStackedPRBodies({
+                branches: stackResult.stack.branches,
+                stackName,
+                gh,
+              }).pipe(Effect.ignore);
             }
           }
 
-          results.push({ name: branch, action, base });
-          if (!json) {
-            const verb =
-              action === "up-to-date"
-                ? "up-to-date"
-                : action === "merged"
-                  ? `tree-merge onto ${base}`
-                  : `rebase onto ${base}`;
-            yield* Console.error(`${branch}: ${verb}`);
+          if (json) {
+            // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+            yield* Console.log(JSON.stringify({ branches: results }, null, 2));
+          } else {
+            yield* success("Sync continued successfully");
           }
+          return;
+        }
+
+        // Normal sync flow
+        const trunk = Option.isSome(trunkOpt) ? trunkOpt.value : yield* stacks.getTrunk();
+        const originTrunk = `origin/${trunk}`;
+        const currentBranch = yield* git.currentBranch();
+
+        // Check for stale sync state
+        const existingState = yield* readSyncState(gitDir);
+        if (existingState !== null) {
+          return yield* new StackError({
+            code: ErrorCode.USAGE_ERROR,
+            message: `Sync recovery in progress on "${existingState.conflictedBranch}". Use --continue or --abort.`,
+          });
+        }
+
+        if (!dryRun) {
+          const clean = yield* git.isClean();
+          if (!clean) {
+            return yield* new StackError({
+              code: ErrorCode.DIRTY_WORKTREE,
+              message: "Working tree has uncommitted changes. Commit or stash before syncing.",
+            });
+          }
+        }
+
+        const result = yield* stacks.currentStack();
+        if (result === null) {
+          return yield* new StackError({
+            code: ErrorCode.NOT_IN_STACK,
+            message:
+              "Not on a stacked branch. Run 'stacked list' to see your stacks, or 'stacked create <name>' to start one.",
+          });
+        }
+
+        const { branches } = result.stack;
+        const data = yield* stacks.load();
+        const mergedSet = new Set(data.mergedBranches);
+
+        // Compute the effective base for a branch at index i, skipping merged branches
+        const effectiveBase = (i: number, fallback: string): string => {
+          for (let j = i - 1; j >= 0; j--) {
+            const candidate = branches[j];
+            if (candidate !== undefined && !mergedSet.has(candidate)) return candidate;
+          }
+          return fallback;
+        };
+
+        const fromBranch = Option.isSome(fromOpt) ? fromOpt.value : undefined;
+
+        let startIdx = 0;
+        if (fromBranch !== undefined) {
+          const idx = branches.indexOf(fromBranch);
+          if (idx === -1) {
+            return yield* new StackError({
+              code: ErrorCode.BRANCH_NOT_FOUND,
+              message: `Branch "${fromBranch}" not found in stack`,
+            });
+          }
+          startIdx = idx + 1;
+          if (startIdx >= branches.length) {
+            yield* warn(`Nothing to sync — ${fromBranch} is the last branch in the stack`);
+            return;
+          }
+        }
+
+        const results: SyncResult[] = [];
+
+        if (dryRun) {
+          results.push({ name: trunk, action: "rebased", base: originTrunk });
+          if (!json) {
+            yield* Console.error(`${trunk}: rebase onto ${originTrunk}`);
+          }
+
+          for (let i = startIdx; i < branches.length; i++) {
+            const branch = branches[i];
+            if (branch === undefined) continue;
+            const base = effectiveBase(i, originTrunk);
+
+            const newBaseTip = yield* git.revParse(base);
+            const branchHead = yield* git.revParse(branch);
+            const syncedOnto = yield* stacks.getSyncedOnto(branch);
+
+            let action: SyncResult["action"];
+            if (syncedOnto !== null && syncedOnto === newBaseTip) {
+              action = "up-to-date";
+            } else {
+              const alreadyIncorporated = yield* git
+                .isAncestor(newBaseTip, branchHead)
+                .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
+              if (alreadyIncorporated) {
+                action = "up-to-date";
+              } else {
+                action = git.supportsTreeMerge() ? "synced" : "rebased";
+              }
+            }
+
+            results.push({ name: branch, action, base });
+            if (!json) {
+              const verb =
+                action === "up-to-date"
+                  ? "up-to-date"
+                  : action === "synced"
+                    ? `tree-merge onto ${base}`
+                    : `rebase onto ${base}`;
+              yield* Console.error(`${branch}: ${verb}`);
+            }
+          }
+
+          if (json) {
+            // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
+            yield* Console.log(JSON.stringify({ branches: results }, null, 2));
+          } else {
+            const changed = results.filter((r) => r.action !== "up-to-date").length;
+            const skipped = results.filter((r) => r.action === "up-to-date").length;
+            const parts: string[] = [];
+            if (changed > 0) parts.push(`${changed} to sync`);
+            if (skipped > 0) parts.push(`${skipped} up-to-date`);
+            yield* Console.error(`\n${parts.join(", ")}`);
+          }
+          return;
+        }
+
+        yield* Effect.gen(function* () {
+          yield* withSpinner(`Fetching ${trunk}`, git.fetch());
+          yield* git.checkout(trunk);
+          yield* withSpinner(`Rebasing ${trunk} onto ${originTrunk}`, git.rebase(originTrunk)).pipe(
+            Effect.catchTag("GitError", (e) =>
+              Effect.fail(
+                new StackError({
+                  code: ErrorCode.SYNC_CONFLICT,
+                  message: `Rebase conflict on ${trunk}: ${e.message}\n\nResolve conflicts, then run:\n  git rebase --continue`,
+                }),
+              ),
+            ),
+          );
+          results.push({ name: trunk, action: "rebased", base: originTrunk });
+
+          for (let i = startIdx; i < branches.length; i++) {
+            const branch = branches[i];
+            if (branch === undefined) continue;
+            const newBase = effectiveBase(i, originTrunk);
+
+            const syncResult = yield* syncOneBranch({
+              git,
+              stacks,
+              branch,
+              effectiveBase: newBase,
+              gitDir,
+              originalBranch: currentBranch,
+              allBranches: branches,
+              remainingBranches: branches.slice(i + 1),
+              stackName: result.name,
+            });
+            results.push(syncResult);
+          }
+        }).pipe(
+          Effect.ensuring(
+            readSyncState(gitDir).pipe(
+              Effect.andThen((state) =>
+                state !== null
+                  ? Effect.void // conflict in progress — don't restore branch
+                  : git
+                      .isRebaseInProgress()
+                      .pipe(
+                        Effect.andThen((inProgress) =>
+                          inProgress
+                            ? Effect.void
+                            : git.checkout(currentBranch).pipe(Effect.ignore),
+                        ),
+                      ),
+              ),
+            ),
+          ),
+        );
+
+        const ghInstalled = yield* gh.isGhInstalled();
+        if (ghInstalled) {
+          const prMap = yield* refreshStackedPRBodies({
+            branches,
+            stackName: result.name,
+            gh,
+          });
+          const mergedBranches = branches.filter(
+            (branch) => (prMap.get(branch)?.state ?? "") === "MERGED",
+          );
+          const activeBranches = branches.filter(
+            (branch) => (prMap.get(branch)?.state ?? "") !== "MERGED",
+          );
+          yield* stacks.markMergedBranches(mergedBranches);
+          yield* stacks.unmarkMergedBranches(activeBranches);
         }
 
         if (json) {
           // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
           yield* Console.log(JSON.stringify({ branches: results }, null, 2));
         } else {
-          const changed = results.filter((r) => r.action !== "up-to-date").length;
-          const skipped = results.filter((r) => r.action === "up-to-date").length;
-          const parts: string[] = [];
-          if (changed > 0) parts.push(`${changed} to sync`);
-          if (skipped > 0) parts.push(`${skipped} up-to-date`);
-          yield* Console.error(`\n${parts.join(", ")}`);
+          yield* success(`Stack synced (including trunk ${trunk})`);
         }
-        return;
-      }
-
-      yield* Effect.gen(function* () {
-        yield* withSpinner(`Fetching ${trunk}`, git.fetch());
-        yield* git.checkout(trunk);
-        yield* withSpinner(`Rebasing ${trunk} onto ${originTrunk}`, git.rebase(originTrunk)).pipe(
-          Effect.catchTag("GitError", (e) =>
-            Effect.fail(
-              new StackError({
-                code: ErrorCode.REBASE_CONFLICT,
-                message: `Rebase conflict on ${trunk}: ${e.message}\n\nResolve conflicts, then run:\n  git rebase --continue`,
-              }),
-            ),
-          ),
-        );
-        results.push({ name: trunk, action: "rebased", base: originTrunk });
-
-        for (let i = startIdx; i < branches.length; i++) {
-          const branch = branches[i];
-          if (branch === undefined) continue;
-          const newBase = effectiveBase(i, originTrunk);
-
-          const newBaseTip = yield* git.revParse(newBase);
-          const branchHead = yield* git.revParse(branch);
-          const syncedOnto = yield* stacks.getSyncedOnto(branch);
-
-          // Skip if parent hasn't moved since last sync
-          if (syncedOnto !== null && syncedOnto === newBaseTip) {
-            results.push({ name: branch, action: "up-to-date", base: newBase });
-            continue;
-          }
-
-          // Skip if parent is already an ancestor of branch (manually synced)
-          const alreadyIncorporated = yield* git
-            .isAncestor(newBaseTip, branchHead)
-            .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
-          if (alreadyIncorporated) {
-            yield* stacks.updateSyncedOnto(branch, newBaseTip);
-            results.push({ name: branch, action: "up-to-date", base: newBase });
-            continue;
-          }
-
-          // Resolve old base: prefer recorded fork-point, fall back to merge-base
-          const oldBase =
-            syncedOnto ??
-            (yield* git
-              .mergeBase(branch, newBase)
-              .pipe(Effect.catchTag("GitError", () => Effect.succeed(newBase))));
-
-          // Try tree-merge fast path first (unless --rebase-only)
-          const mergeResult = rebaseOnly
-            ? ({ action: "conflict" } as const)
-            : yield* git
-                .treeMergeSync({
-                  branch,
-                  branchHead,
-                  oldBase,
-                  newBase: newBaseTip,
-                  message: `sync: incorporate changes from ${newBase}`,
-                })
-                .pipe(
-                  Effect.catchTag("GitError", () =>
-                    Effect.succeed({ action: "conflict" as const }),
-                  ),
-                );
-
-          if (mergeResult.action === "merged") {
-            yield* stacks.updateSyncedOnto(branch, newBaseTip);
-            yield* withSpinner(`Pushing ${branch}`, git.push(branch, { force: true }));
-            results.push({ name: branch, action: "merged", base: newBase });
-          } else if (mergeResult.action === "up-to-date") {
-            yield* stacks.updateSyncedOnto(branch, newBaseTip);
-            results.push({ name: branch, action: "up-to-date", base: newBase });
-          } else {
-            // Conflict or unsupported backend — fall back to rebase with corrected oldBase
-            yield* git.checkout(branch);
-            yield* withSpinner(
-              `Rebasing ${branch} onto ${newBase}`,
-              git.rebaseOnto(branch, newBase, oldBase),
-            ).pipe(
-              Effect.catchTag("GitError", (e) => {
-                const hint =
-                  i === 0 ? "stacked sync" : `stacked sync --from ${branches[i - 1] ?? trunk}`;
-                return Effect.fail(
-                  new StackError({
-                    code: ErrorCode.REBASE_CONFLICT,
-                    message: `Rebase conflict on ${branch}: ${e.message}\n\nResolve conflicts, then run:\n  git rebase --continue\n  ${hint}`,
-                  }),
-                );
-              }),
-            );
-            yield* stacks.updateSyncedOnto(branch, newBaseTip);
-            yield* withSpinner(`Pushing ${branch}`, git.push(branch, { force: true }));
-            results.push({ name: branch, action: "rebased", base: newBase });
-          }
-        }
-      }).pipe(
-        Effect.ensuring(
-          git
-            .isRebaseInProgress()
-            .pipe(
-              Effect.andThen((inProgress) =>
-                inProgress ? Effect.void : git.checkout(currentBranch).pipe(Effect.ignore),
-              ),
-            ),
-        ),
-      );
-
-      const ghInstalled = yield* gh.isGhInstalled();
-      if (ghInstalled) {
-        const prMap = yield* refreshStackedPRBodies({
-          branches,
-          stackName: result.name,
-          gh,
-        });
-        const mergedBranches = branches.filter(
-          (branch) => (prMap.get(branch)?.state ?? "") === "MERGED",
-        );
-        const activeBranches = branches.filter(
-          (branch) => (prMap.get(branch)?.state ?? "") !== "MERGED",
-        );
-        yield* stacks.markMergedBranches(mergedBranches);
-        yield* stacks.unmarkMergedBranches(activeBranches);
-      }
-
-      if (json) {
-        // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
-        yield* Console.log(JSON.stringify({ branches: results }, null, 2));
-      } else {
-        yield* success(`Stack synced (including trunk ${trunk})`);
-      }
-    }),
+      }),
   ),
 );
+
+// ---------------------------------------------------------------------------
+// Per-branch sync logic (shared between normal sync and --continue resume)
+// ---------------------------------------------------------------------------
+
+const syncOneBranch = Effect.fn("syncOneBranch")(function* (opts: {
+  git: GitApi;
+  stacks: StackApi;
+  branch: string;
+  effectiveBase: string;
+  gitDir: string;
+  originalBranch: string;
+  allBranches: readonly string[];
+  remainingBranches: readonly string[];
+  stackName: string;
+}) {
+  const { git, stacks, branch, effectiveBase: newBase, gitDir } = opts;
+
+  const newBaseTip = yield* git.revParse(newBase);
+  const branchHead = yield* git.revParse(branch);
+  const syncedOnto = yield* stacks.getSyncedOnto(branch);
+
+  // Skip if parent hasn't moved since last sync
+  if (syncedOnto !== null && syncedOnto === newBaseTip) {
+    return { name: branch, action: "up-to-date" as const, base: newBase };
+  }
+
+  // Skip if parent is already an ancestor of branch (manually synced)
+  const alreadyIncorporated = yield* git
+    .isAncestor(newBaseTip, branchHead)
+    .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
+  if (alreadyIncorporated) {
+    yield* stacks.updateSyncedOnto(branch, newBaseTip);
+    return { name: branch, action: "up-to-date" as const, base: newBase };
+  }
+
+  // Resolve old base: prefer recorded fork-point, fall back to merge-base
+  const oldBase =
+    syncedOnto ??
+    (yield* git
+      .mergeBase(branch, newBase)
+      .pipe(Effect.catchTag("GitError", () => Effect.succeed(newBase))));
+
+  // Try tree-merge fast path
+  const mergeResult = yield* git
+    .treeMergeSync({
+      branch,
+      branchHead,
+      oldBase,
+      newBase: newBaseTip,
+      message: `sync: incorporate changes from ${newBase}`,
+    })
+    .pipe(Effect.catchTag("GitError", () => Effect.succeed({ action: "conflict" as const })));
+
+  if (mergeResult.action === "rebased") {
+    yield* stacks.updateSyncedOnto(branch, newBaseTip);
+    yield* withSpinner(`Pushing ${branch}`, git.push(branch, { force: true }));
+    return { name: branch, action: "synced" as const, base: newBase };
+  }
+
+  if (mergeResult.action === "up-to-date") {
+    yield* stacks.updateSyncedOnto(branch, newBaseTip);
+    return { name: branch, action: "up-to-date" as const, base: newBase };
+  }
+
+  // Conflict — prepare merge with conflict markers in worktree
+  const { files } = yield* git.prepareConflictMerge({ branch, oldBase, newBase: newBaseTip }).pipe(
+    Effect.catchTag("GitError", (e) =>
+      Effect.fail(
+        new StackError({
+          code: ErrorCode.SYNC_CONFLICT,
+          message: `Failed to prepare conflict merge on ${branch}: ${e.message}`,
+        }),
+      ),
+    ),
+  );
+
+  // Write resume state atomically
+  yield* writeSyncState(gitDir, {
+    version: 1,
+    conflictedBranch: branch,
+    newBaseTip,
+    oldBase,
+    stackName: opts.stackName,
+    originalBranch: opts.originalBranch,
+    remainingBranches: [...opts.remainingBranches],
+  });
+
+  const fileList = files.length > 0 ? `\n${files.map((f) => `  ${f}`).join("\n")}` : "";
+  return yield* new StackError({
+    code: ErrorCode.SYNC_CONFLICT,
+    message: `Conflict on ${branch} (${files.length} file${files.length === 1 ? "" : "s"}):${fileList}\n\nResolve conflicts, then:\n  git add <resolved-files> && stacked sync --continue\n\nOr abort:\n  stacked sync --abort`,
+  });
+});

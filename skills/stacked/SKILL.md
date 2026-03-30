@@ -45,7 +45,7 @@ What do you need?
 | `stacked down`               | Move down one branch in the stack                                                           |
 | `stacked top`                | Jump to top of stack                                                                        |
 | `stacked bottom`             | Jump to bottom of stack                                                                     |
-| `stacked sync`               | Fetch + sync stack on trunk (`--from`, `--dry-run`, `--rebase-only`, `--json`)              |
+| `stacked sync`               | Fetch + sync stack on trunk (`--from`, `--dry-run`, `--continue`, `--abort`, `--json`)      |
 | `stacked detect`             | Detect branch chains and register as stacks (`--dry-run`, `--json`)                         |
 | `stacked clean`              | Remove merged branches + remote branches (`--dry-run`, `--json`)                            |
 | `stacked delete <name>`      | Remove branch from stack + git + remote (`--keep-remote`, `--force`, `--dry-run`, `--json`) |
@@ -148,7 +148,8 @@ Fetch latest trunk, then incrementally sync the stack bottom-to-top using fork-p
 ```sh
 stacked sync
 stacked sync --dry-run       # preview sync plan with predicted actions per branch
-stacked sync --rebase-only   # force rebase path (skip tree-merge)
+stacked sync --continue      # continue after resolving conflicts
+stacked sync --abort         # abort sync and discard conflict markers
 stacked sync --json          # structured output: { branches: [{ name, action, base }] }
 ```
 
@@ -294,7 +295,7 @@ All errors include a machine-readable code for programmatic handling:
 | `BRANCH_NOT_FOUND`    | Branch not found in any stack               |
 | `NOT_IN_STACK`        | Current branch not tracked in a stack       |
 | `DIRTY_WORKTREE`      | Working tree has uncommitted changes        |
-| `REBASE_CONFLICT`     | Rebase conflict during sync/amend           |
+| `SYNC_CONFLICT`       | Merge conflict during sync/amend            |
 | `GH_NOT_INSTALLED`    | `gh` CLI not installed or not authenticated |
 | `STACK_NOT_FOUND`     | Stack not found                             |
 | `STACK_EXISTS`        | Stack name already taken                    |

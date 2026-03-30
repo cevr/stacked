@@ -245,6 +245,9 @@ describe("doctor command logic", () => {
           deleteRemoteBranch: () => Effect.void,
           treeMergeSync: () => Effect.succeed({ action: "conflict" as const }),
           supportsTreeMerge: () => false,
+          prepareConflictMerge: () => Effect.succeed({ files: [] }),
+          finalizeConflictMerge: () => Effect.void,
+          abortConflictMerge: () => Effect.void,
         };
       }),
     ).pipe(Layer.provide(recorderLayer));
