@@ -1,5 +1,11 @@
 # @cvr/stacked
 
+## 0.7.1
+
+### Patch Changes
+
+- [`653062a`](https://github.com/cevr/stacked/commit/653062a43f7cc7ff2245708db71824802533678e) Thanks [@cevr](https://github.com/cevr)! - Default git operations to the CLI-backed provider so working tree checks and SSH remotes match the user's installed `git`.
+
 ## 0.7.0
 
 ### Minor Changes
