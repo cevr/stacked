@@ -158,8 +158,8 @@ stacked sync --json          # structured output: { branches: [{ name, action, b
 1. Fetch and rebase trunk onto `origin/trunk`
 2. For each branch, check if parent moved since last sync (`syncedOnto` metadata)
 3. If parent unchanged → skip (no push needed)
-4. If parent changed → try tree-merge fast path (es-git: `mergeTrees`, creates merge commit, no replay)
-5. If tree-merge conflicts → fall back to rebase with corrected fork-point as `oldBase`
+4. If parent changed → rebase with corrected fork-point as `oldBase` on the default CLI backend
+5. If `STACKED_GIT_BACKEND=es-git`, try tree-merge fast path (`mergeTrees`, creates merge commit, no replay); conflicts use the merge-commit resolution flow
 6. Force-push changed branches, update `syncedOnto` metadata
 
 After mid-stack changes, sync only the branches above a specific point:
@@ -368,7 +368,7 @@ stacked down  # go to previous branch
 ## Gotchas
 
 - `stacked sync` requires a clean working tree — commit or stash first (except `--dry-run`)
-- `stacked sync` uses tree-merge by default (es-git); falls back to rebase on conflict or CLI backend
+- `stacked sync` uses the git CLI backend by default; set `STACKED_GIT_BACKEND=es-git` to opt into tree-merge
 - `stacked sync` skips branches whose parent hasn't moved since last sync
 - `stacked sync` leaves rebase in progress on conflict (fallback path) — resolve with `git rebase --continue`, then resume with `stacked sync --from <parent>`
 - `syncedOnto` metadata may become stale if branches are rebased outside `stacked` — first sync after that falls back to `merge-base`
