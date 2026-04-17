@@ -1,5 +1,5 @@
 ---
-"@cvr/stacked": major
+"@cvr/stacked": minor
 ---
 
 Replace rebase-based sync with a pure merge model.
