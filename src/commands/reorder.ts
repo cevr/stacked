@@ -92,7 +92,7 @@ export const reorder = Command.make("reorder", {
         );
       } else {
         yield* success(`Moved "${branch}" in stack "${updated.name}"`);
-        yield* warn("Run 'stacked sync' to rebase branches in new order");
+        yield* warn("Run 'stacked sync' to merge the new parents into children");
       }
     }),
   ),

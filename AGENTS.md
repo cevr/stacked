@@ -11,9 +11,9 @@ Stacked = branch-based stacked PR manager. Branches are unit; stack order define
 
 ## Gotchas
 
-- `sync` now rebases and force-pushes each rebased branch (`--force-with-lease`). Use `--dry-run` before risky stacks.
-- `sync` requires clean working tree; conflict handling is manual (`git rebase --continue`) then resume with `stacked sync --from <parent>`.
-- `submit` still handles PR creation/base retarget + metadata body updates; `sync` only handles git history + pushes.
+- `sync` merges parent into each child (`git merge --no-ff`) and plain-pushes. No rebases, no force-pushes. Trunk update uses `merge --ff-only` so divergent trunk aborts the sync.
+- `sync` requires clean working tree; on conflict, resolve in place then `stacked sync --continue` (or `--abort`).
+- `submit` handles PR creation/base retarget + metadata body updates and plain-pushes. `sync` does git history + pushes.
 - `stacked` metadata can drift when branches are deleted outside CLI; run `stacked doctor --fix`.
 
 ## Docs Map

@@ -40,7 +40,7 @@ describe("main CLI", () => {
     expect(stderr).toContain("--verbose and --quiet are mutually exclusive");
   });
 
-  test("status uses the CLI git backend by default", async () => {
+  test("status runs via the git CLI", async () => {
     const base = await mkdtemp(join(tmpdir(), "stacked-main-test-"));
     try {
       git(base, "init", "-b", "main", "repo");
@@ -49,14 +49,11 @@ describe("main CLI", () => {
       git(repo, "add", "README.md");
       git(repo, "commit", "-m", "initial");
 
-      const env = { ...process.env };
-      delete env["STACKED_GIT_BACKEND"];
       const proc = Bun.spawnSync({
         cmd: ["bun", "run", mainPath, "status", "--json"],
         cwd: repo,
         stdout: "pipe",
         stderr: "pipe",
-        env,
       });
 
       expect(proc.exitCode).toBe(0);

@@ -115,7 +115,7 @@ export const deleteCmd = Command.make("delete", {
         yield* Console.error(`Deleted ${name}`);
         if (hadChildren) {
           yield* Console.error(
-            "Warning: branch had children — commits unique to this branch may be lost if children don't include them. Run 'stacked sync' to rebase them onto the new parent.",
+            "Warning: branch had children — commits unique to this branch may be lost if children don't include them. Run 'stacked sync' to merge the new parent into them.",
           );
         }
       }

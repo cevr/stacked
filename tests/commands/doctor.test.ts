@@ -219,14 +219,10 @@ describe("doctor command logic", () => {
           createBranch: () => Effect.void,
           deleteBranch: () => Effect.void,
           checkout: () => Effect.void,
-          rebase: () => Effect.void,
-          rebaseOnto: () => Effect.void,
-          rebaseAbort: () => Effect.void,
           push: () => Effect.void,
           log: () => Effect.succeed(""),
           isClean: () => Effect.succeed(true),
           revParse: (ref: string) => {
-            // Fail for SHA-like refs (stale syncedOnto)
             if (/^[0-9a-f]{7,}$/.test(ref)) {
               return Effect.fail(
                 new GitError({ message: `bad revision '${ref}'`, command: `git rev-parse ${ref}` }),
@@ -239,15 +235,15 @@ describe("doctor command logic", () => {
           isAncestor: () => Effect.succeed(false),
           mergeBase: () => Effect.succeed("abc123"),
           firstParentUniqueCommits: () => Effect.succeed([]),
-          isRebaseInProgress: () => Effect.succeed(false),
+          isMergeInProgress: () => Effect.succeed(false),
           commitAmend: () => Effect.void,
           fetch: () => Effect.void,
           deleteRemoteBranch: () => Effect.void,
-          treeMergeSync: () => Effect.succeed({ action: "conflict" as const }),
-          supportsTreeMerge: () => false,
-          prepareConflictMerge: () => Effect.succeed({ files: [] }),
-          finalizeConflictMerge: () => Effect.void,
-          abortConflictMerge: () => Effect.void,
+          mergeFastForward: () => Effect.void,
+          mergeBranch: () => Effect.succeed({ action: "merged" as const }),
+          mergeContinue: () => Effect.void,
+          mergeAbort: () => Effect.void,
+          conflictedFiles: () => Effect.succeed([]),
         };
       }),
     ).pipe(Layer.provide(recorderLayer));

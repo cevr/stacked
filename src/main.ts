@@ -3,7 +3,7 @@ import { Command } from "effect/unstable/cli";
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Console, Effect, Layer } from "effect";
 import { command } from "./commands/index.js";
-import { gitBackendConfig, gitServiceLayerForBackend } from "./services/git-backend.js";
+import { GitService } from "./services/Git.js";
 import { StackService } from "./services/Stack.js";
 import { GitHubService } from "./services/GitHub.js";
 import { OutputConfig } from "./ui.js";
@@ -77,9 +77,8 @@ const handleKnownError = (e: { message: string; code?: string | undefined }) => 
 // @effect-diagnostics-next-line effect/strictEffectProvide:off
 BunRuntime.runMain(
   Effect.gen(function* () {
-    const gitBackend = yield* gitBackendConfig;
     const serviceLayer = StackService.layer.pipe(
-      Layer.provideMerge(gitServiceLayerForBackend(gitBackend)),
+      Layer.provideMerge(GitService.layer),
       Layer.provideMerge(GitHubService.layer),
     );
     const appLayer = Layer.mergeAll(serviceLayer, BunServices.layer);

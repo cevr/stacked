@@ -5,8 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { GitService } from "../src/services/Git.js";
-import type { GitBackend } from "../src/services/git-backend.js";
-import { gitServiceLayerForBackend } from "../src/services/git-backend.js";
 
 const DETECT_COMMIT_LIMIT = 2048;
 
@@ -48,14 +46,8 @@ const withCwd = async <A>(cwd: string, run: () => Promise<A>) => {
   }
 };
 
-const runWithBackend = async <A>(
-  cwd: string,
-  backend: GitBackend,
-  effect: Effect.Effect<A, unknown, GitService>,
-) =>
-  withCwd(cwd, async () =>
-    Effect.runPromise(effect.pipe(Effect.provide(gitServiceLayerForBackend(backend)))),
-  );
+const runGit = async <A>(cwd: string, effect: Effect.Effect<A, unknown, GitService>) =>
+  withCwd(cwd, async () => Effect.runPromise(effect.pipe(Effect.provide(GitService.layer))));
 
 const writeCommit = async (cwd: string, file: string, message: string) => {
   await Bun.write(join(cwd, file), `${message} ${Date.now()}\n`);
@@ -238,23 +230,19 @@ const newDetect = Effect.gen(function* () {
 const average = (values: readonly number[]) =>
   values.reduce((sum, value) => sum + value, 0) / values.length;
 
-const timeEffect = async (
-  cwd: string,
-  backend: GitBackend,
-  effect: Effect.Effect<unknown, unknown, GitService>,
-) => {
+const timeEffect = async (cwd: string, effect: Effect.Effect<unknown, unknown, GitService>) => {
   const start = performance.now();
-  await runWithBackend(cwd, backend, effect);
+  await runGit(cwd, effect);
   return performance.now() - start;
 };
 
-const benchmarkFixture = async (cwd: string, backend: GitBackend) => {
+const benchmarkFixture = async (cwd: string) => {
   const oldSamples: number[] = [];
   const newSamples: number[] = [];
 
   for (let i = 0; i < iterations; i++) {
-    oldSamples.push(await timeEffect(cwd, backend, oldDetect));
-    newSamples.push(await timeEffect(cwd, backend, newDetect));
+    oldSamples.push(await timeEffect(cwd, oldDetect));
+    newSamples.push(await timeEffect(cwd, newDetect));
   }
 
   return {
@@ -263,11 +251,7 @@ const benchmarkFixture = async (cwd: string, backend: GitBackend) => {
   };
 };
 
-const printRow = (
-  fixture: string,
-  backend: GitBackend,
-  result: { oldMs: number; newMs: number },
-) => {
+const printRow = (fixture: string, result: { oldMs: number; newMs: number }) => {
   const faster =
     result.oldMs === result.newMs
       ? "tie"
@@ -276,7 +260,7 @@ const printRow = (
         : `new x${(result.oldMs / result.newMs).toFixed(2)}`;
 
   console.log(
-    `${fixture.padEnd(12)} ${backend.padEnd(7)} ${result.oldMs.toFixed(2).padStart(9)} ${result.newMs.toFixed(2).padStart(9)} ${faster.padStart(10)}`,
+    `${fixture.padEnd(12)} ${result.oldMs.toFixed(2).padStart(9)} ${result.newMs.toFixed(2).padStart(9)} ${faster.padStart(10)}`,
   );
 };
 
@@ -287,7 +271,7 @@ const fixtures = [
 ] as const;
 
 console.log(`Detect benchmark iterations: ${iterations}`);
-console.log("fixture      backend    old(ms)   new(ms)     faster");
+console.log("fixture       old(ms)   new(ms)     faster");
 
 const cleanup: Array<() => Promise<void>> = [];
 
@@ -296,10 +280,8 @@ try {
     const cwd = await fixture.create();
     cleanup.push(() => rm(cwd, { recursive: true, force: true }));
 
-    for (const backend of ["cli", "es-git"] satisfies readonly GitBackend[]) {
-      const result = await benchmarkFixture(cwd, backend);
-      printRow(fixture.name, backend, result);
-    }
+    const result = await benchmarkFixture(cwd);
+    printRow(fixture.name, result);
   }
 } finally {
   for (const dispose of cleanup.reverse()) {

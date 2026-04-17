@@ -1,6 +1,6 @@
 # stacked
 
-Branch-based stacked PR manager. Tracks parent-child branch relationships, automates rebasing, and creates/updates GitHub PRs via `gh`.
+Branch-based stacked PR manager. Tracks parent-child branch relationships, propagates upstream changes via merges, and creates/updates GitHub PRs via `gh`.
 
 Built with [Effect v4](https://effect.website) and [Bun](https://bun.sh).
 
@@ -56,16 +56,15 @@ stacked checkout any-branch  # falls through to git for non-stacked branches
 # Sync entire stack with latest trunk
 stacked sync
 
-# After editing mid-stack, rebase only children
+# After editing mid-stack, merge parent into children only
 stacked sync --from feat-auth
 
-# Push all branches + create/update PRs (force-pushes by default)
+# Push all branches + create/update PRs
 stacked submit
 stacked submit --draft
 stacked submit --title "Add auth" --body "Implements OAuth2 flow"
 stacked submit --title "Auth,Validation,Tests"  # per-branch titles (comma-delimited)
 stacked submit --only         # process only the current branch
-stacked submit --no-force    # disable force-push
 stacked submit --dry-run
 
 # Adopt an existing branch into the stack
@@ -110,7 +109,7 @@ stacked --yes clean      # skip confirmation prompts
 | `down`            | Move down one branch in the stack                                              |
 | `top`             | Jump to top of stack                                                           |
 | `bottom`          | Jump to bottom of stack                                                        |
-| `sync`            | Fetch + rebase stack on trunk (`--from` to start from a branch)                |
+| `sync`            | Fetch + merge parent into each child (`--from` to start from a branch)         |
 | `detect`          | Detect branch chains and register as stacks (`--dry-run`, `--json`)            |
 | `clean`           | Remove merged branches + remote branches (`--dry-run`, `--json`)               |
 | `delete <name>`   | Remove branch from stack + git + remote (`--keep-remote`, `--force`, `--json`) |

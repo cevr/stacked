@@ -103,7 +103,7 @@ export const adopt = Command.make("adopt", {
         yield* Console.log(JSON.stringify({ adopted: branch, stack: stackName }, null, 2));
       } else {
         yield* Console.error(`Adopted ${branch} into stack`);
-        const hint = yield* dim("Run 'stacked sync' to rebase onto the new parent.");
+        const hint = yield* dim("Run 'stacked sync' to merge the new parent in.");
         yield* Console.error(hint);
       }
     }),

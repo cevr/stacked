@@ -12,14 +12,7 @@ export class GitService extends ServiceMap.Service<
     readonly createBranch: (name: string, from?: string) => Effect.Effect<void, GitError>;
     readonly deleteBranch: (name: string, force?: boolean) => Effect.Effect<void, GitError>;
     readonly checkout: (name: string) => Effect.Effect<void, GitError>;
-    readonly rebase: (onto: string) => Effect.Effect<void, GitError>;
-    readonly rebaseOnto: (
-      branch: string,
-      newBase: string,
-      oldBase: string,
-    ) => Effect.Effect<void, GitError>;
-    readonly rebaseAbort: () => Effect.Effect<void, GitError>;
-    readonly push: (branch: string, options?: { force?: boolean }) => Effect.Effect<void, GitError>;
+    readonly push: (branch: string) => Effect.Effect<void, GitError>;
     readonly log: (
       branch: string,
       options?: { limit?: number; oneline?: boolean },
@@ -33,29 +26,18 @@ export class GitService extends ServiceMap.Service<
       base: string,
       options?: { limit?: number },
     ) => Effect.Effect<readonly string[], GitError>;
-    readonly isRebaseInProgress: () => Effect.Effect<boolean>;
+    readonly isMergeInProgress: () => Effect.Effect<boolean>;
     readonly commitAmend: (options?: { edit?: boolean }) => Effect.Effect<void, GitError>;
     readonly fetch: (remote?: string) => Effect.Effect<void, GitError>;
     readonly deleteRemoteBranch: (branch: string) => Effect.Effect<void, GitError>;
-    readonly treeMergeSync: (opts: {
-      branch: string;
-      branchHead: string;
-      oldBase: string;
-      newBase: string;
+    readonly mergeFastForward: (ref: string) => Effect.Effect<void, GitError>;
+    readonly mergeBranch: (opts: {
+      base: string;
       message: string;
-    }) => Effect.Effect<{ action: "rebased" | "up-to-date" | "conflict" }, GitError>;
-    readonly supportsTreeMerge: () => boolean;
-    readonly prepareConflictMerge: (opts: {
-      branch: string;
-      oldBase: string;
-      newBase: string;
-    }) => Effect.Effect<{ files: string[] }, GitError>;
-    readonly finalizeConflictMerge: (opts: {
-      branch: string;
-      newBase: string;
-      message: string;
-    }) => Effect.Effect<void, GitError>;
-    readonly abortConflictMerge: () => Effect.Effect<void, GitError>;
+    }) => Effect.Effect<{ action: "merged" | "up-to-date" }, GitError>;
+    readonly mergeContinue: () => Effect.Effect<void, GitError>;
+    readonly mergeAbort: () => Effect.Effect<void, GitError>;
+    readonly conflictedFiles: () => Effect.Effect<string[], GitError>;
   }
 >()("@cvr/stacked/services/Git/GitService") {
   static layer: Layer.Layer<GitService> = Layer.sync(GitService, () => {
@@ -157,19 +139,7 @@ export class GitService extends ServiceMap.Service<
 
       checkout: (name) => run(["checkout", name]).pipe(Effect.asVoid),
 
-      rebase: (onto) => run(["rebase", onto]).pipe(Effect.asVoid),
-
-      rebaseOnto: (branch, newBase, oldBase) =>
-        run(["rebase", "--onto", newBase, oldBase, branch]).pipe(Effect.asVoid),
-
-      rebaseAbort: () => run(["rebase", "--abort"]).pipe(Effect.asVoid),
-
-      push: (branch, options) => {
-        const args = ["push", "-u", "origin"];
-        if (options?.force === true) args.splice(1, 0, "--force-with-lease");
-        args.push(branch);
-        return run(args).pipe(Effect.asVoid);
-      },
+      push: (branch) => run(["push", "-u", "origin", branch]).pipe(Effect.asVoid),
 
       log: (branch, options) => {
         const args = ["log", branch];
@@ -204,18 +174,14 @@ export class GitService extends ServiceMap.Service<
         );
       },
 
-      isRebaseInProgress: () =>
+      isMergeInProgress: () =>
         run(["rev-parse", "--git-dir"]).pipe(
-          Effect.map(
-            (gitDir) =>
-              existsSync(`${gitDir}/rebase-merge`) || existsSync(`${gitDir}/rebase-apply`),
-          ),
+          Effect.map((gitDir) => existsSync(`${gitDir}/MERGE_HEAD`)),
           Effect.catch(() => Effect.succeed(false)),
         ),
 
       commitAmend: (options) => {
         if (options?.edit === true) {
-          // Interactive editor needs inherited stdio, not piped
           return Effect.tryPromise({
             try: async () => {
               const proc = Bun.spawn(["git", "commit", "--amend"], {
@@ -243,46 +209,30 @@ export class GitService extends ServiceMap.Service<
       deleteRemoteBranch: (branch) =>
         run(["push", "origin", "--delete", branch]).pipe(Effect.asVoid),
 
-      treeMergeSync: () => Effect.succeed({ action: "conflict" as const }),
-      supportsTreeMerge: () => false,
+      mergeFastForward: (ref) => run(["merge", "--ff-only", ref]).pipe(Effect.asVoid),
 
-      prepareConflictMerge: ({ branch, newBase }) =>
-        run(["checkout", branch]).pipe(
-          Effect.andThen(() => run(["merge", "--no-commit", "--no-ff", newBase])),
-          // merge exits non-zero on conflicts — that's expected
-          Effect.catchTag("GitError", () => Effect.void),
-          Effect.andThen(() =>
-            run(["diff", "--name-only", "--diff-filter=U"]).pipe(
-              Effect.map((output) => ({
-                files: output
-                  .split("\n")
-                  .map((f) => f.trim())
-                  .filter((f) => f.length > 0),
-              })),
-            ),
+      mergeBranch: ({ base, message }) =>
+        run(["merge", "--no-ff", "--no-edit", "-m", message, base]).pipe(
+          Effect.map((output) =>
+            output.toLowerCase().includes("already up to date")
+              ? ({ action: "up-to-date" } as const)
+              : ({ action: "merged" } as const),
           ),
         ),
 
-      finalizeConflictMerge: ({ message }) =>
+      mergeContinue: () => run(["commit", "--no-edit"]).pipe(Effect.asVoid),
+
+      mergeAbort: () => run(["merge", "--abort"]).pipe(Effect.asVoid),
+
+      conflictedFiles: () =>
         run(["diff", "--name-only", "--diff-filter=U"]).pipe(
-          Effect.andThen((output) => {
-            const unresolved = output
+          Effect.map((output) =>
+            output
               .split("\n")
               .map((f) => f.trim())
-              .filter((f) => f.length > 0);
-            if (unresolved.length > 0) {
-              return Effect.fail(
-                new GitError({
-                  message: `Unresolved conflicts: ${unresolved.join(", ")}`,
-                  command: "git merge --continue",
-                }),
-              );
-            }
-            return run(["commit", "--no-edit", "-m", message]).pipe(Effect.asVoid);
-          }),
+              .filter((f) => f.length > 0),
+          ),
         ),
-
-      abortConflictMerge: () => run(["merge", "--abort"]).pipe(Effect.asVoid),
     };
   });
 
@@ -295,9 +245,6 @@ export class GitService extends ServiceMap.Service<
       createBranch: () => Effect.void,
       deleteBranch: () => Effect.void,
       checkout: () => Effect.void,
-      rebase: () => Effect.void,
-      rebaseOnto: () => Effect.void,
-      rebaseAbort: () => Effect.void,
       push: () => Effect.void,
       log: () => Effect.succeed(""),
       isClean: () => Effect.succeed(true),
@@ -305,15 +252,15 @@ export class GitService extends ServiceMap.Service<
       isAncestor: () => Effect.succeed(true),
       mergeBase: () => Effect.succeed("abc123"),
       firstParentUniqueCommits: () => Effect.succeed([]),
-      isRebaseInProgress: () => Effect.succeed(false),
+      isMergeInProgress: () => Effect.succeed(false),
       commitAmend: () => Effect.void,
       fetch: () => Effect.void,
       deleteRemoteBranch: () => Effect.void,
-      treeMergeSync: () => Effect.succeed({ action: "conflict" as const }),
-      supportsTreeMerge: () => false,
-      prepareConflictMerge: () => Effect.succeed({ files: [] }),
-      finalizeConflictMerge: () => Effect.void,
-      abortConflictMerge: () => Effect.void,
+      mergeFastForward: () => Effect.void,
+      mergeBranch: () => Effect.succeed({ action: "merged" as const }),
+      mergeContinue: () => Effect.void,
+      mergeAbort: () => Effect.void,
+      conflictedFiles: () => Effect.succeed([]),
       ...impl,
     });
 }

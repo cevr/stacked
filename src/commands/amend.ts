@@ -4,7 +4,7 @@ import { rename, writeFile } from "node:fs/promises";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { ErrorCode, StackError } from "../errors/index.js";
-import { success } from "../ui.js";
+import { success, withSpinner } from "../ui.js";
 
 const editFlag = Flag.boolean("edit").pipe(Flag.withDescription("Open editor for commit message"));
 const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
@@ -17,7 +17,6 @@ interface SyncState {
   version: 1;
   conflictedBranch: string;
   newBaseTip: string;
-  oldBase: string;
   stackName: string;
   originalBranch: string;
   remainingBranches: string[];
@@ -41,9 +40,9 @@ export const amend = Command.make("amend", {
   json: jsonFlag,
   from: fromFlag,
 }).pipe(
-  Command.withDescription("Amend current commit and rebase children"),
+  Command.withDescription("Amend current commit and merge into children"),
   Command.withExamples([
-    { command: "stacked amend", description: "Amend and auto-rebase children" },
+    { command: "stacked amend", description: "Amend and auto-merge into children" },
     { command: "stacked amend --edit", description: "Amend with editor" },
   ]),
   Command.withHandler(({ edit, json, from }) =>
@@ -63,7 +62,6 @@ export const amend = Command.make("amend", {
 
       const fromBranch = Option.isSome(from) ? from.value : currentBranch;
 
-      // Find children to rebase
       const { branches } = result.stack;
       const idx = branches.indexOf(fromBranch);
       if (idx === -1) {
@@ -80,12 +78,11 @@ export const amend = Command.make("amend", {
           // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
           yield* Console.log(JSON.stringify({ amended: currentBranch, synced: [] }, null, 2));
         } else {
-          yield* success(`Amended ${currentBranch} (no children to rebase)`);
+          yield* success(`Amended ${currentBranch} (no children to sync)`);
         }
         return;
       }
 
-      // Sync children using fork-point-aware algorithm
       const children = branches.slice(idx + 1);
       const synced: string[] = [];
       const data = yield* stacks.load();
@@ -96,7 +93,7 @@ export const amend = Command.make("amend", {
         for (let i = 0; i < children.length; i++) {
           const branch = children[i];
           if (branch === undefined) continue;
-          // Compute effective base, skipping merged branches (same as sync)
+
           let newBase = fromBranch;
           for (let j = i - 1; j >= 0; j--) {
             const candidate = children[j];
@@ -110,69 +107,72 @@ export const amend = Command.make("amend", {
           const branchHead = yield* git.revParse(branch);
           const syncedOnto = yield* stacks.getSyncedOnto(branch);
 
-          // Resolve old base: prefer recorded fork-point, fall back to merge-base
-          const oldBase =
-            syncedOnto ??
-            (yield* git
-              .mergeBase(branch, newBase)
-              .pipe(Effect.catchTag("GitError", () => Effect.succeed(newBase))));
+          if (syncedOnto !== null && syncedOnto === newBaseTip) {
+            synced.push(branch);
+            continue;
+          }
 
-          // Try tree-merge fast path
+          const alreadyIncorporated = yield* git
+            .isAncestor(newBaseTip, branchHead)
+            .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
+          if (alreadyIncorporated) {
+            yield* stacks.updateSyncedOnto(branch, newBaseTip);
+            synced.push(branch);
+            continue;
+          }
+
+          yield* git.checkout(branch);
           const mergeResult = yield* git
-            .treeMergeSync({
-              branch,
-              branchHead,
-              oldBase,
-              newBase: newBaseTip,
-              message: `sync: incorporate changes from ${newBase}`,
-            })
+            .mergeBranch({ base: newBase, message: `sync: merge ${newBase} into ${branch}` })
             .pipe(
               Effect.catchTag("GitError", () => Effect.succeed({ action: "conflict" as const })),
             );
 
-          if (mergeResult.action === "rebased" || mergeResult.action === "up-to-date") {
-            yield* stacks.updateSyncedOnto(branch, newBaseTip);
-          } else {
-            // Conflict — prepare merge with conflict markers in worktree
-            const { files } = yield* git
-              .prepareConflictMerge({ branch, oldBase, newBase: newBaseTip })
-              .pipe(
-                Effect.catchTag("GitError", (e) =>
-                  Effect.fail(
-                    new StackError({
-                      code: ErrorCode.SYNC_CONFLICT,
-                      message: `Failed to prepare conflict merge on ${branch}: ${e.message}`,
-                    }),
-                  ),
-                ),
-              );
-
-            // Write resume state so `stacked sync --continue` can resume
+          if (mergeResult.action === "conflict") {
             yield* writeSyncState(gitDir, {
               version: 1,
               conflictedBranch: branch,
               newBaseTip,
-              oldBase,
               stackName: result.name,
               originalBranch: currentBranch,
               remainingBranches: children.slice(i + 1),
             });
 
+            const files = yield* git
+              .conflictedFiles()
+              .pipe(Effect.orElseSucceed(() => [] as string[]));
             const fileList = files.length > 0 ? `\n${files.map((f) => `  ${f}`).join("\n")}` : "";
             return yield* new StackError({
               code: ErrorCode.SYNC_CONFLICT,
               message: `Conflict on ${branch} (${files.length} file${files.length === 1 ? "" : "s"}):${fileList}\n\nResolve conflicts, then:\n  git add <resolved-files> && stacked sync --continue\n\nOr abort:\n  stacked sync --abort`,
             });
           }
+
+          yield* stacks.updateSyncedOnto(branch, newBaseTip);
+          if (mergeResult.action === "merged") {
+            yield* withSpinner(`Pushing ${branch}`, git.push(branch));
+          }
           synced.push(branch);
         }
-      }).pipe(Effect.ensuring(git.checkout(currentBranch).pipe(Effect.ignore)));
+      }).pipe(
+        Effect.ensuring(
+          git
+            .isMergeInProgress()
+            .pipe(
+              Effect.andThen((inProgress) =>
+                inProgress ? Effect.void : git.checkout(currentBranch).pipe(Effect.ignore),
+              ),
+            ),
+        ),
+      );
 
       if (json) {
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
         yield* Console.log(JSON.stringify({ amended: currentBranch, synced }, null, 2));
       } else {
-        yield* success(`Amended ${currentBranch} and rebased ${synced.length} child branch(es)`);
+        yield* success(
+          `Amended ${currentBranch} and merged into ${synced.length} child branch(es)`,
+        );
       }
     }),
   ),

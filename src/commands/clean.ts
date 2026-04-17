@@ -152,7 +152,7 @@ export const clean = Command.make("clean", { dryRun: dryRunFlag, json: jsonFlag 
           `Cleaned ${removed.length} merged branch${removed.length === 1 ? "" : "es"}`,
         );
         const hint = yield* dim(
-          "Run 'stacked sync' then 'stacked submit' to rebase and retarget PRs.",
+          "Run 'stacked sync' then 'stacked submit' to merge parents and retarget PRs.",
         );
         yield* Console.error(hint);
 

@@ -56,24 +56,21 @@ describe("amend command logic", () => {
     ),
   );
 
-  it.effect("amend rebases children using rebaseOnto", () =>
+  it.effect("amend merges into children via mergeBranch", () =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const recorder = yield* CallRecorder;
 
-      // Simulate what amend does after amending: rebase children
       yield* git.commitAmend();
-      yield* git.mergeBase("feat-b", "feat-a");
       yield* git.checkout("feat-b");
-      yield* git.rebaseOnto("feat-b", "feat-a", "abc123");
-      yield* git.mergeBase("feat-c", "feat-b");
+      yield* git.mergeBranch({ base: "feat-a", message: "sync: merge feat-a into feat-b" });
       yield* git.checkout("feat-c");
-      yield* git.rebaseOnto("feat-c", "feat-b", "abc123");
+      yield* git.mergeBranch({ base: "feat-b", message: "sync: merge feat-b into feat-c" });
 
       const calls = yield* recorder.calls;
       expectCall(calls, "Git", "commitAmend");
-      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-b", newBase: "feat-a" });
-      expectCall(calls, "Git", "rebaseOnto", { branch: "feat-c", newBase: "feat-b" });
+      expectCall(calls, "Git", "mergeBranch", { base: "feat-a" });
+      expectCall(calls, "Git", "mergeBranch", { base: "feat-b" });
     }).pipe(
       Effect.provide(
         createTestLayer({
@@ -84,7 +81,7 @@ describe("amend command logic", () => {
     ),
   );
 
-  it.effect("amend on last branch has no children to rebase", () =>
+  it.effect("amend on last branch has no children to merge", () =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const recorder = yield* CallRecorder;
@@ -93,7 +90,7 @@ describe("amend command logic", () => {
 
       const calls = yield* recorder.calls;
       expectCall(calls, "Git", "commitAmend");
-      expectNoCall(calls, "Git", "rebaseOnto");
+      expectNoCall(calls, "Git", "mergeBranch");
     }).pipe(
       Effect.provide(
         createTestLayer({

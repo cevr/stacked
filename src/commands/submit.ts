@@ -15,9 +15,6 @@ const draftFlag = Flag.boolean("draft").pipe(
   Flag.withAlias("d"),
   Flag.withDescription("Create PRs as drafts"),
 );
-const noForceFlag = Flag.boolean("no-force").pipe(
-  Flag.withDescription("Disable force-push (force-with-lease is on by default)"),
-);
 const dryRunFlag = Flag.boolean("dry-run").pipe(
   Flag.withDescription("Show what would happen without making changes"),
 );
@@ -47,7 +44,6 @@ const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"
 
 export const submit = Command.make("submit", {
   draft: draftFlag,
-  noForce: noForceFlag,
   dryRun: dryRunFlag,
   title: titleFlag,
   body: bodyFlag,
@@ -64,7 +60,7 @@ export const submit = Command.make("submit", {
       description: "With PR title and body",
     },
   ]),
-  Command.withHandler(({ draft, noForce, dryRun, title: titleOpt, body: bodyOpt, only, json }) =>
+  Command.withHandler(({ draft, dryRun, title: titleOpt, body: bodyOpt, only, json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
@@ -192,7 +188,7 @@ export const submit = Command.make("submit", {
           continue;
         }
 
-        yield* withSpinner(`Pushing ${branch}`, git.push(branch, { force: !noForce }));
+        yield* withSpinner(`Pushing ${branch}`, git.push(branch));
 
         const existingPR = prMap.get(branch) ?? null;
 

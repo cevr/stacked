@@ -81,17 +81,8 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
           recorder.record({ service: "Git", method: "deleteBranch", args: { name, force } }),
         checkout: (name: string) =>
           recorder.record({ service: "Git", method: "checkout", args: { name } }),
-        rebase: (onto: string) =>
-          recorder.record({ service: "Git", method: "rebase", args: { onto } }),
-        rebaseOnto: (branch: string, newBase: string, oldBase: string) =>
-          recorder.record({
-            service: "Git",
-            method: "rebaseOnto",
-            args: { branch, newBase, oldBase },
-          }),
-        rebaseAbort: () => recorder.record({ service: "Git", method: "rebaseAbort" }),
-        push: (branch: string, opts?: { force?: boolean }) =>
-          recorder.record({ service: "Git", method: "push", args: { branch, ...opts } }),
+        push: (branch: string) =>
+          recorder.record({ service: "Git", method: "push", args: { branch } }),
         log: (_branch: string, _opts?: { limit?: number; oneline?: boolean }) =>
           Effect.succeed("abc123 some commit"),
         isClean: () => Effect.succeed(options.isClean ?? true),
@@ -117,33 +108,24 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
               args: { ref, base, ...params },
             })
             .pipe(Effect.as([])),
-        isRebaseInProgress: () => Effect.succeed(false),
+        isMergeInProgress: () => Effect.succeed(false),
         commitAmend: (opts?: { edit?: boolean }) =>
           recorder.record({ service: "Git", method: "commitAmend", args: { ...opts } }),
         fetch: () => recorder.record({ service: "Git", method: "fetch" }),
         deleteRemoteBranch: (branch: string) =>
           recorder.record({ service: "Git", method: "deleteRemoteBranch", args: { branch } }),
-        treeMergeSync: (opts: {
-          branch: string;
-          branchHead: string;
-          oldBase: string;
-          newBase: string;
-          message: string;
-        }) =>
+        mergeFastForward: (ref: string) =>
+          recorder.record({ service: "Git", method: "mergeFastForward", args: { ref } }),
+        mergeBranch: (opts: { base: string; message: string }) =>
           recorder
-            .record({ service: "Git", method: "treeMergeSync", args: opts })
-            .pipe(Effect.as({ action: "rebased" as const })),
-        supportsTreeMerge: () => true,
-        prepareConflictMerge: (opts: { branch: string; oldBase: string; newBase: string }) =>
-          recorder
-            .record({ service: "Git", method: "prepareConflictMerge", args: opts })
-            .pipe(Effect.as({ files: [] })),
-        finalizeConflictMerge: (opts: { branch: string; newBase: string; message: string }) =>
-          recorder
-            .record({ service: "Git", method: "finalizeConflictMerge", args: opts })
-            .pipe(Effect.asVoid),
-        abortConflictMerge: () =>
-          recorder.record({ service: "Git", method: "abortConflictMerge" }).pipe(Effect.asVoid),
+            .record({ service: "Git", method: "mergeBranch", args: opts })
+            .pipe(Effect.as({ action: "merged" as const })),
+        mergeContinue: () =>
+          recorder.record({ service: "Git", method: "mergeContinue" }).pipe(Effect.asVoid),
+        mergeAbort: () =>
+          recorder.record({ service: "Git", method: "mergeAbort" }).pipe(Effect.asVoid),
+        conflictedFiles: () =>
+          recorder.record({ service: "Git", method: "conflictedFiles" }).pipe(Effect.as([])),
       };
     }),
   );

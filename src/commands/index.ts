@@ -30,7 +30,7 @@ const root = Command.make("stacked").pipe(
   Command.withExamples([
     { command: "stacked create feat-auth", description: "Create a new branch in the stack" },
     { command: "stacked list", description: "Show branches in the current stack" },
-    { command: "stacked sync", description: "Update trunk, then rebase stack branches in order" },
+    { command: "stacked sync", description: "Update trunk, then merge parent into each child" },
     { command: "stacked submit", description: "Push and create/update PRs" },
   ]),
 );
