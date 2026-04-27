@@ -1,5 +1,23 @@
 # @cvr/stacked
 
+## 0.8.0
+
+### Minor Changes
+
+- [`5d2b524`](https://github.com/cevr/stacked/commit/5d2b5245dd61f14dd18148dd109bbe45f1276cce) Thanks [@cevr](https://github.com/cevr)! - Replace rebase-based sync with a pure merge model.
+  - `sync` now fast-forwards trunk onto `origin/<trunk>` and merges each parent into its child (`git merge --no-ff`). No rebases anywhere in the stack.
+  - `submit` plain-pushes (no force). Sync never rewrites history, so pushes always fast-forward. `--no-force` flag removed.
+  - Conflict flow simplified: resolve in place, then `stacked sync --continue` commits the merge; `stacked sync --abort` aborts the merge cleanly.
+  - Removed the `es-git` backend and `STACKED_GIT_BACKEND` env var. The CLI backend is the only backend.
+  - Trunk fast-forward fails if trunk has diverged from origin — reconcile manually before syncing.
+  - `amend` uses the same merge loop to propagate amended parents into children.
+
+- [`caf9b03`](https://github.com/cevr/stacked/commit/caf9b03e6ac9aa1ecfa3e50ce329d69c86418861) Thanks [@cevr](https://github.com/cevr)! - `sync` now pushes branches that have local commits ahead of `origin/<branch>`, even when no merge was needed. Previously, branches with committed-but-unpushed work were silently left behind whenever the parent hadn't moved. Detection compares the branch tip to its `origin/<branch>` ref (or pushes if no remote tracking ref exists yet).
+
+  `status` now lists every branch in the stack with `↑N` next to branches that have unpushed commits and `(no remote)` next to branches that have never been pushed.
+
+  `submit` now runs `sync` before pushing and creating PRs. Pass `--no-sync` to skip the sync step.
+
 ## 0.7.1
 
 ### Patch Changes
