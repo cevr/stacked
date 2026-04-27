@@ -25,7 +25,9 @@
 - `sync` records `syncedOnto` (parent tip SHA) per branch to skip no-op merges when the parent hasn't moved.
 - Trunk update uses `git merge --ff-only origin/<trunk>` — fails loudly if trunk diverges from origin so the user reconciles manually.
 - Push is plain `git push` (no force) since merges only grow history forward.
-- `submit` pushes (without force) and creates/updates PRs, refresh stack metadata in PR bodies.
+- `sync` also pushes branches whose local tip is ahead of `origin/<branch>` (or where the remote ref doesn't exist yet) — committed-but-unpushed work is detected and pushed even when no merge was needed.
+- `submit` runs `sync` first by default (skip with `--no-sync`), then pushes (without force) and creates/updates PRs and refreshes stack metadata in PR bodies. The shared sync entry point is `runSync` exported from `commands/sync.ts`.
+- `status` lists every branch in the current stack with per-branch push state (`↑N` for unpushed commits, `(no remote)` for branches never pushed). Driven by `Git.aheadCount`.
 - Commands assume linear stacks; forked branch trees are detected but intentionally not stacked.
 - `detect` treats metadata as source of truth for managed branches and only infers parentage for untracked branches.
 - `amend` reuses the merge loop to propagate amended parents into children.

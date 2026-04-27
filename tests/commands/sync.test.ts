@@ -308,6 +308,49 @@ describe("sync command", () => {
     await Effect.runPromise(program);
   });
 
+  test("sync pushes up-to-date branches that have unpushed commits", async () => {
+    const stackDataWithSyncedOnto: StackFile = {
+      version: 2,
+      trunk: "main",
+      stacks: { "feat-a": { root: "feat-a" } },
+      branches: {
+        "feat-a": { stack: "feat-a", parent: null, syncedOnto: "oid-origin/main" },
+        "feat-b": { stack: "feat-a", parent: "feat-a", syncedOnto: "oid-feat-a" },
+      },
+    };
+
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(sync, { version: "test" });
+
+      yield* run([]);
+
+      const calls = yield* recorder.calls;
+      // No merges happen — both branches' syncedOnto matches parent tip
+      expectNoCall(calls, "Git", "mergeBranch");
+      // But both branches had unpushed commits, so both should be pushed
+      expectCall(calls, "Git", "aheadCount", { branch: "feat-a" });
+      expectCall(calls, "Git", "aheadCount", { branch: "feat-b" });
+      expectCall(calls, "Git", "push", { branch: "feat-a" });
+      expectCall(calls, "Git", "push", { branch: "feat-b" });
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: {
+              currentBranch: "feat-a",
+              aheadCount: () => ({ ahead: 2, hasRemote: true }),
+            },
+            stack: stackDataWithSyncedOnto,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
   test("sync skips branches when syncedOnto matches parent tip", async () => {
     const stackDataWithSyncedOnto: StackFile = {
       version: 2,
@@ -405,6 +448,10 @@ describe("sync command", () => {
           deleteRemoteBranch: () => Effect.void,
           mergeFastForward: (ref: string) =>
             recorder.record({ service: "Git", method: "mergeFastForward", args: { ref } }),
+          aheadCount: (branch: string) =>
+            recorder
+              .record({ service: "Git", method: "aheadCount", args: { branch } })
+              .pipe(Effect.as({ ahead: 0, hasRemote: true })),
           mergeBranch: (opts: { base: string; message: string }) =>
             recorder
               .record({ service: "Git", method: "mergeBranch", args: opts })
@@ -480,6 +527,7 @@ describe("sync command", () => {
           fetch: () => recorder.record({ service: "Git", method: "fetch" }),
           deleteRemoteBranch: () => Effect.void,
           mergeFastForward: () => Effect.void,
+          aheadCount: () => Effect.succeed({ ahead: 0, hasRemote: true }),
           mergeBranch: () =>
             Effect.fail(new GitError({ message: "conflict", command: "git merge" })),
           mergeContinue: () => Effect.void,

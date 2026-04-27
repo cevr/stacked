@@ -128,6 +128,90 @@ describe("submit command logic", () => {
     await Effect.runPromise(program);
   });
 
+  test("submit runs sync before pushing by default", async () => {
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(submit, { version: "test" });
+
+      yield* run([]);
+
+      const calls = yield* recorder.calls;
+      expectCall(calls, "Git", "fetch");
+      expectCall(calls, "Git", "mergeFastForward", { ref: "origin/main" });
+      expectCall(calls, "Git", "mergeBranch");
+
+      const fetchIdx = calls.findIndex((c) => c.service === "Git" && c.method === "fetch");
+      const firstPushIdx = calls.findIndex((c) => c.service === "Git" && c.method === "push");
+      expect(fetchIdx).toBeGreaterThan(-1);
+      expect(firstPushIdx).toBeGreaterThan(fetchIdx);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-a", isAncestor: () => false },
+            stack: stackData,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("submit --no-sync skips the sync step", async () => {
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(submit, { version: "test" });
+
+      yield* run(["--no-sync"]);
+
+      const calls = yield* recorder.calls;
+      expectNoCall(calls, "Git", "fetch");
+      expectNoCall(calls, "Git", "mergeFastForward");
+      expectNoCall(calls, "Git", "mergeBranch");
+      expectCall(calls, "Git", "push", { branch: "feat-a" });
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-a" },
+            stack: stackData,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("submit --dry-run does not run sync", async () => {
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(submit, { version: "test" });
+
+      yield* run(["--dry-run"]);
+
+      const calls = yield* recorder.calls;
+      expectNoCall(calls, "Git", "fetch");
+      expectNoCall(calls, "Git", "mergeFastForward");
+      expectNoCall(calls, "Git", "mergeBranch");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-a" },
+            stack: stackData,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
   test("dry-run json plans without pushing or mutating PRs", async () => {
     const program = Effect.gen(function* () {
       const recorder = yield* CallRecorder;

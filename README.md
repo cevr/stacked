@@ -59,8 +59,9 @@ stacked sync
 # After editing mid-stack, merge parent into children only
 stacked sync --from feat-auth
 
-# Push all branches + create/update PRs
+# Sync, push, and create/update PRs in one step
 stacked submit
+stacked submit --no-sync      # skip the sync step
 stacked submit --draft
 stacked submit --title "Add auth" --body "Implements OAuth2 flow"
 stacked submit --title "Auth,Validation,Tests"  # per-branch titles (comma-delimited)
@@ -97,26 +98,26 @@ stacked --yes clean      # skip confirmation prompts
 
 ## Commands
 
-| Command           | Description                                                                    |
-| ----------------- | ------------------------------------------------------------------------------ |
-| `trunk [name]`    | Get/set trunk branch (`--json`)                                                |
-| `create <name>`   | Create branch on top of current (`--from`, `--json`)                           |
-| `list [stack]`    | Show stack branches (`--json`)                                                 |
-| `stacks`          | List all stacks (`--json`)                                                     |
-| `status`          | Show current branch, stack position, working tree state (`--json`)             |
-| `checkout <name>` | Switch to branch (falls through to git for non-stacked branches)               |
-| `up`              | Move up one branch in the stack                                                |
-| `down`            | Move down one branch in the stack                                              |
-| `top`             | Jump to top of stack                                                           |
-| `bottom`          | Jump to bottom of stack                                                        |
-| `sync`            | Fetch + merge parent into each child (`--from` to start from a branch)         |
-| `detect`          | Detect branch chains and register as stacks (`--dry-run`, `--json`)            |
-| `clean`           | Remove merged branches + remote branches (`--dry-run`, `--json`)               |
-| `delete <name>`   | Remove branch from stack + git + remote (`--keep-remote`, `--force`, `--json`) |
-| `submit`          | Push + create/update PRs (`--title`, `--body`, `--only`, `--draft`, `--json`)  |
-| `adopt <branch>`  | Add existing branch to stack (`--after`, `--json`)                             |
-| `log`             | Show commits grouped by branch (`--json`)                                      |
-| `init`            | Install the stacked Claude skill to ~/.claude/skills                           |
+| Command           | Description                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------- |
+| `trunk [name]`    | Get/set trunk branch (`--json`)                                                                   |
+| `create <name>`   | Create branch on top of current (`--from`, `--json`)                                              |
+| `list [stack]`    | Show stack branches (`--json`)                                                                    |
+| `stacks`          | List all stacks (`--json`)                                                                        |
+| `status`          | Show current branch, stack position, working tree state, per-branch push state (`--json`)         |
+| `checkout <name>` | Switch to branch (falls through to git for non-stacked branches)                                  |
+| `up`              | Move up one branch in the stack                                                                   |
+| `down`            | Move down one branch in the stack                                                                 |
+| `top`             | Jump to top of stack                                                                              |
+| `bottom`          | Jump to bottom of stack                                                                           |
+| `sync`            | Fetch + merge parent into each child (`--from` to start from a branch)                            |
+| `detect`          | Detect branch chains and register as stacks (`--dry-run`, `--json`)                               |
+| `clean`           | Remove merged branches + remote branches (`--dry-run`, `--json`)                                  |
+| `delete <name>`   | Remove branch from stack + git + remote (`--keep-remote`, `--force`, `--json`)                    |
+| `submit`          | Sync + push + create/update PRs (`--no-sync`, `--title`, `--body`, `--only`, `--draft`, `--json`) |
+| `adopt <branch>`  | Add existing branch to stack (`--after`, `--json`)                                                |
+| `log`             | Show commits grouped by branch (`--json`)                                                         |
+| `init`            | Install the stacked Claude skill to ~/.claude/skills                                              |
 
 ### Global Flags
 

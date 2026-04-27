@@ -10,6 +10,7 @@ import {
   refreshStackedPRBodies,
 } from "./helpers/pr-metadata.js";
 import { withSpinner, success } from "../ui.js";
+import { runSync } from "./sync.js";
 
 const draftFlag = Flag.boolean("draft").pipe(
   Flag.withAlias("d"),
@@ -31,6 +32,9 @@ const bodyFlag = Flag.string("body").pipe(
   Flag.withDescription("PR body/description. Comma-delimited for per-branch bodies."),
 );
 const onlyFlag = Flag.boolean("only").pipe(Flag.withDescription("Only submit the current branch"));
+const noSyncFlag = Flag.boolean("no-sync").pipe(
+  Flag.withDescription("Skip the sync step before pushing and creating PRs"),
+);
 
 interface SubmitResult {
   branch: string;
@@ -48,19 +52,26 @@ export const submit = Command.make("submit", {
   title: titleFlag,
   body: bodyFlag,
   only: onlyFlag,
+  noSync: noSyncFlag,
   json: jsonFlag,
 }).pipe(
-  Command.withDescription("Push all stack branches and create/update PRs via gh"),
+  Command.withDescription(
+    "Sync the stack, then push branches and create/update PRs via gh. Use --no-sync to skip the sync step.",
+  ),
   Command.withExamples([
-    { command: "stacked submit", description: "Push and create/update PRs for all branches" },
+    {
+      command: "stacked submit",
+      description: "Sync, push, and create/update PRs for all branches",
+    },
     { command: "stacked submit --draft", description: "Create PRs as drafts" },
     { command: "stacked submit --only", description: "Submit only the current branch" },
+    { command: "stacked submit --no-sync", description: "Skip sync — just push and update PRs" },
     {
       command: 'stacked submit --title "Add auth" --body "Implements OAuth2"',
       description: "With PR title and body",
     },
   ]),
-  Command.withHandler(({ draft, dryRun, title: titleOpt, body: bodyOpt, only, json }) =>
+  Command.withHandler(({ draft, dryRun, title: titleOpt, body: bodyOpt, only, noSync, json }) =>
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
@@ -80,6 +91,17 @@ export const submit = Command.make("submit", {
           code: ErrorCode.NOT_IN_STACK,
           message:
             "Not on a stacked branch. Run 'stacked list' to see your stacks, or 'stacked create <name>' to start one.",
+        });
+      }
+
+      if (!noSync && !dryRun) {
+        yield* runSync({
+          trunk: Option.none(),
+          from: Option.none(),
+          json: false,
+          dryRun: false,
+          continue: false,
+          abort: false,
         });
       }
 

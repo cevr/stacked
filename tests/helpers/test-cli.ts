@@ -50,6 +50,7 @@ export interface MockGitOptions {
   allBranches?: string[];
   remoteDefaultBranch?: Option.Option<string>;
   isAncestor?: (ancestor: string, descendant: string) => boolean;
+  aheadCount?: (branch: string) => { ahead: number; hasRemote: boolean };
 }
 
 export const createMockGitService = (options: MockGitOptions = {}) =>
@@ -116,6 +117,10 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
           recorder.record({ service: "Git", method: "deleteRemoteBranch", args: { branch } }),
         mergeFastForward: (ref: string) =>
           recorder.record({ service: "Git", method: "mergeFastForward", args: { ref } }),
+        aheadCount: (branch: string) =>
+          recorder
+            .record({ service: "Git", method: "aheadCount", args: { branch } })
+            .pipe(Effect.as(options.aheadCount?.(branch) ?? { ahead: 0, hasRemote: true })),
         mergeBranch: (opts: { base: string; message: string }) =>
           recorder
             .record({ service: "Git", method: "mergeBranch", args: opts })

@@ -240,6 +240,7 @@ describe("doctor command logic", () => {
           fetch: () => Effect.void,
           deleteRemoteBranch: () => Effect.void,
           mergeFastForward: () => Effect.void,
+          aheadCount: () => Effect.succeed({ ahead: 0, hasRemote: true }),
           mergeBranch: () => Effect.succeed({ action: "merged" as const }),
           mergeContinue: () => Effect.void,
           mergeAbort: () => Effect.void,

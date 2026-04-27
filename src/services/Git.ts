@@ -31,6 +31,9 @@ export class GitService extends ServiceMap.Service<
     readonly fetch: (remote?: string) => Effect.Effect<void, GitError>;
     readonly deleteRemoteBranch: (branch: string) => Effect.Effect<void, GitError>;
     readonly mergeFastForward: (ref: string) => Effect.Effect<void, GitError>;
+    readonly aheadCount: (
+      branch: string,
+    ) => Effect.Effect<{ ahead: number; hasRemote: boolean }, GitError>;
     readonly mergeBranch: (opts: {
       base: string;
       message: string;
@@ -211,6 +214,20 @@ export class GitService extends ServiceMap.Service<
 
       mergeFastForward: (ref) => run(["merge", "--ff-only", ref]).pipe(Effect.asVoid),
 
+      aheadCount: (branch) =>
+        run(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]).pipe(
+          Effect.matchEffect({
+            onFailure: () => Effect.succeed({ ahead: 0, hasRemote: false }),
+            onSuccess: () =>
+              run(["rev-list", "--count", branch, `^refs/remotes/origin/${branch}`]).pipe(
+                Effect.map((output) => ({
+                  ahead: Number.parseInt(output.trim(), 10),
+                  hasRemote: true,
+                })),
+              ),
+          }),
+        ),
+
       mergeBranch: ({ base, message }) =>
         run(["merge", "--no-ff", "--no-edit", "-m", message, base]).pipe(
           Effect.map((output) =>
@@ -257,6 +274,7 @@ export class GitService extends ServiceMap.Service<
       fetch: () => Effect.void,
       deleteRemoteBranch: () => Effect.void,
       mergeFastForward: () => Effect.void,
+      aheadCount: () => Effect.succeed({ ahead: 0, hasRemote: true }),
       mergeBranch: () => Effect.succeed({ action: "merged" as const }),
       mergeContinue: () => Effect.void,
       mergeAbort: () => Effect.void,
