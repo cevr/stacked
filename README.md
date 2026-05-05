@@ -59,6 +59,9 @@ stacked sync
 # After editing mid-stack, merge parent into children only
 stacked sync --from feat-auth
 
+# Force-include merged branches (rare — they're skipped by default)
+stacked sync --include-merged
+
 # Sync, push, and create/update PRs in one step
 stacked submit
 stacked submit --no-sync      # skip the sync step
@@ -110,7 +113,7 @@ stacked --yes clean      # skip confirmation prompts
 | `down`            | Move down one branch in the stack                                                                 |
 | `top`             | Jump to top of stack                                                                              |
 | `bottom`          | Jump to bottom of stack                                                                           |
-| `sync`            | Fetch + merge parent into each child (`--from` to start from a branch)                            |
+| `sync`            | Fetch + merge parent into each child (`--from`, `--include-merged`, `--continue`, `--abort`)      |
 | `detect`          | Detect branch chains and register as stacks (`--dry-run`, `--json`)                               |
 | `clean`           | Remove merged branches + remote branches (`--dry-run`, `--json`)                                  |
 | `delete <name>`   | Remove branch from stack + git + remote (`--keep-remote`, `--force`, `--json`)                    |
@@ -128,9 +131,20 @@ stacked --yes clean      # skip confirmation prompts
 | `--no-color`   | Disable colored output        |
 | `--yes`/`-y`   | Skip confirmation prompts     |
 
+## Merged Branches
+
+Once a PR merges, its branch is detected on the next `sync` (via `gh pr view`) and added to `mergedBranches` in `.git/stacked.json`. From that point on:
+
+- `sync` and `submit` treat the branch as **invisible** — no merge, no push, no PR mutation.
+- Children of a merged branch reparent to the next non-merged ancestor (or trunk).
+- `status` shows them with a dim `✓ (merged)` so they don't look stuck.
+- The branch still renders in PR-body metadata tables (with ✅) for bookkeeping.
+
+Use `stacked sync --include-merged` to force them back into the loop, or `stacked clean` to remove them entirely.
+
 ## Data Model
 
-Stack metadata lives in `.git/stacked.json`. Active stacks are stored as explicit linear parent links plus a per-stack root, and older v1 metadata is auto-migrated on load. `mergedBranches` remains a skip-list so `detect` does not try to rebuild stacks around already-merged branches.
+Stack metadata lives in `.git/stacked.json`. Active stacks are stored as explicit linear parent links plus a per-stack root, and older v1 metadata is auto-migrated on load. `mergedBranches` is a skip-list of branches whose PRs have merged — they remain in metadata for bookkeeping but are skipped by `sync`/`submit`/`detect`.
 
 Trunk is auto-detected on first use from `origin/HEAD` when available, then falls back to local `main`, `master`, or `develop`. Override with `stacked trunk <name>`.
 
