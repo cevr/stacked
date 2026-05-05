@@ -239,4 +239,60 @@ describe("submit command logic", () => {
 
     await Effect.runPromise(program);
   });
+
+  test("submit skips merged branches: no push, no PR mutation, mark preserved", async () => {
+    const mergedStack: StackFile = {
+      version: 2,
+      trunk: "main",
+      stacks: {
+        "feat-a": { root: "feat-a" },
+      },
+      branches: {
+        "feat-a": { stack: "feat-a", parent: null },
+        "feat-b": { stack: "feat-a", parent: "feat-a" },
+      },
+      mergedBranches: ["feat-a"],
+    };
+
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(submit, { version: "test" });
+
+      yield* run(["--no-sync"]);
+
+      const calls = yield* recorder.calls;
+      const featAPush = calls.find(
+        (c) =>
+          c.service === "Git" &&
+          c.method === "push" &&
+          (c.args as { branch?: string })?.branch === "feat-a",
+      );
+      expect(featAPush).toBeUndefined();
+      const featACreatePR = calls.find(
+        (c) =>
+          c.service === "GitHub" &&
+          c.method === "createPR" &&
+          (c.args as { head?: string })?.head === "feat-a",
+      );
+      expect(featACreatePR).toBeUndefined();
+      expectCall(calls, "Git", "push", { branch: "feat-b" });
+      expectCall(calls, "GitHub", "createPR", { head: "feat-b" });
+
+      const stacks = yield* StackService;
+      const data = yield* stacks.load();
+      expect(data.mergedBranches).toEqual(["feat-a"]);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-b" },
+            stack: mergedStack,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
 });

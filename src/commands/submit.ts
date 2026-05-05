@@ -102,6 +102,7 @@ export const submit = Command.make("submit", {
           dryRun: false,
           continue: false,
           abort: false,
+          includeMerged: false,
         });
       }
 
@@ -166,8 +167,10 @@ export const submit = Command.make("submit", {
         { number: number; url: string; state: string; base: string; body?: string | null } | null
       >();
 
-      // Pre-fetch all PR statuses in parallel
-      const activeBranches = only ? branches.filter((b) => b === currentBranch) : [...branches];
+      // Pre-fetch all PR statuses in parallel (skip merged branches entirely)
+      const activeBranches = (
+        only ? branches.filter((b) => b === currentBranch) : [...branches]
+      ).filter((b) => !mergedSet.has(b));
       const prResults = yield* Effect.forEach(
         activeBranches,
         (branch) =>
@@ -184,6 +187,7 @@ export const submit = Command.make("submit", {
       for (let i = 0; i < branches.length; i++) {
         const branch = branches[i];
         if (branch === undefined) continue;
+        if (mergedSet.has(branch)) continue;
         const base = effectiveBase(i);
 
         // --only: skip branches that aren't current
@@ -281,8 +285,6 @@ export const submit = Command.make("submit", {
           (!only || branch === currentBranch) && results.some((entry) => entry.branch === branch),
         getUserBody: getBodyForBranch,
       });
-      yield* stacks.unmarkMergedBranches(branches);
-
       // Print structured output to stdout
       if (json) {
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off

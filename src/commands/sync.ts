@@ -11,6 +11,40 @@ import { withSpinner, success, warn } from "../ui.js";
 
 type GitApi = ServiceMap.Service.Shape<typeof GitService>;
 type StackApi = ServiceMap.Service.Shape<typeof StackService>;
+type GitHubApi = ServiceMap.Service.Shape<typeof GitHubService>;
+
+const detectMergedBranches = Effect.fn("detectMergedBranches")(function* (opts: {
+  branches: readonly string[];
+  gh: GitHubApi;
+  stacks: StackApi;
+}) {
+  const ghInstalled = yield* opts.gh.isGhInstalled();
+  if (!ghInstalled) {
+    const data = yield* opts.stacks.load();
+    return new Set(data.mergedBranches);
+  }
+
+  const prEntries = yield* Effect.forEach(
+    opts.branches,
+    (branch) =>
+      opts.gh.getPR(branch).pipe(
+        Effect.map((pr) => [branch, pr] as const),
+        Effect.catchTag("GitHubError", () => Effect.succeed([branch, null] as const)),
+      ),
+    { concurrency: 5 },
+  );
+
+  const mergedNow = prEntries.filter(([, pr]) => pr?.state === "MERGED").map(([branch]) => branch);
+  const activeNow = prEntries
+    .filter(([, pr]) => pr !== null && pr.state !== "MERGED")
+    .map(([branch]) => branch);
+
+  yield* opts.stacks.markMergedBranches(mergedNow);
+  yield* opts.stacks.unmarkMergedBranches(activeNow);
+
+  const data = yield* opts.stacks.load();
+  return new Set(data.mergedBranches);
+});
 
 const trunkFlag = Flag.string("trunk").pipe(
   Flag.optional,
@@ -31,6 +65,9 @@ const continueFlag = Flag.boolean("continue").pipe(
 );
 const abortFlag = Flag.boolean("abort").pipe(
   Flag.withDescription("Abort sync and discard in-progress merge"),
+);
+const includeMergedFlag = Flag.boolean("include-merged").pipe(
+  Flag.withDescription("Include branches whose PRs are already merged in the sync loop"),
 );
 
 interface SyncResult {
@@ -85,6 +122,7 @@ export const sync = Command.make("sync", {
   dryRun: dryRunFlag,
   continue: continueFlag,
   abort: abortFlag,
+  includeMerged: includeMergedFlag,
 }).pipe(
   Command.withDescription(
     "Fetch, merge parent into each stack branch, and push. Use --from to start from a branch.",
@@ -98,6 +136,10 @@ export const sync = Command.make("sync", {
     { command: "stacked sync --dry-run", description: "Preview merge plan" },
     { command: "stacked sync --continue", description: "Continue after resolving conflicts" },
     { command: "stacked sync --abort", description: "Abort sync and discard in-progress merge" },
+    {
+      command: "stacked sync --include-merged",
+      description: "Force-include branches whose PRs are already merged",
+    },
   ]),
   Command.withHandler((opts) => runSync(opts)),
 );
@@ -109,6 +151,7 @@ export interface RunSyncOptions {
   readonly dryRun: boolean;
   readonly continue: boolean;
   readonly abort: boolean;
+  readonly includeMerged: boolean;
 }
 
 export const runSync = ({
@@ -118,6 +161,7 @@ export const runSync = ({
   dryRun,
   continue: continueMode,
   abort: abortMode,
+  includeMerged,
 }: RunSyncOptions) =>
   Effect.gen(function* () {
     const git = yield* GitService;
@@ -167,8 +211,12 @@ export const runSync = ({
           yield* warn(`Stack not found for "${conflictedBranch}" — skipping remaining branches`);
         } else {
           const allBranches = stackResult.stack.branches;
-          const data = yield* stacks.load();
-          const mergedSet = new Set(data.mergedBranches);
+          const detectedMerged = yield* detectMergedBranches({
+            branches: allBranches,
+            gh,
+            stacks,
+          });
+          const mergedSet = includeMerged ? new Set<string>() : detectedMerged;
 
           const effectiveBase = (branch: string): string => {
             const idx = allBranches.indexOf(branch);
@@ -179,8 +227,10 @@ export const runSync = ({
             return originTrunk;
           };
 
+          const activeRemaining = remainingBranches.filter((b) => !mergedSet.has(b));
+
           yield* Effect.gen(function* () {
-            for (const branch of remainingBranches) {
+            for (const branch of activeRemaining) {
               const syncResult = yield* syncOneBranch({
                 git,
                 stacks,
@@ -189,7 +239,7 @@ export const runSync = ({
                 gitDir,
                 originalBranch,
                 allBranches,
-                remainingBranches: remainingBranches.slice(remainingBranches.indexOf(branch) + 1),
+                remainingBranches: activeRemaining.slice(activeRemaining.indexOf(branch) + 1),
                 stackName,
               });
               results.push(syncResult);
@@ -264,8 +314,8 @@ export const runSync = ({
     }
 
     const { branches } = result.stack;
-    const data = yield* stacks.load();
-    const mergedSet = new Set(data.mergedBranches);
+    const detectedMerged = yield* detectMergedBranches({ branches, gh, stacks });
+    const mergedSet = includeMerged ? new Set<string>() : detectedMerged;
 
     const effectiveBase = (i: number, fallback: string): string => {
       for (let j = i - 1; j >= 0; j--) {
@@ -304,6 +354,7 @@ export const runSync = ({
       for (let i = startIdx; i < branches.length; i++) {
         const branch = branches[i];
         if (branch === undefined) continue;
+        if (mergedSet.has(branch)) continue;
         const base = effectiveBase(i, originTrunk);
 
         const newBaseTip = yield* git.revParse(base);
@@ -375,7 +426,10 @@ export const runSync = ({
       for (let i = startIdx; i < branches.length; i++) {
         const branch = branches[i];
         if (branch === undefined) continue;
+        if (mergedSet.has(branch)) continue;
         const newBase = effectiveBase(i, originTrunk);
+
+        const remainingActive = branches.slice(i + 1).filter((b) => !mergedSet.has(b));
 
         const syncResult = yield* syncOneBranch({
           git,
@@ -385,7 +439,7 @@ export const runSync = ({
           gitDir,
           originalBranch: currentBranch,
           allBranches: branches,
-          remainingBranches: branches.slice(i + 1),
+          remainingBranches: remainingActive,
           stackName: result.name,
         });
         results.push(syncResult);
@@ -410,19 +464,11 @@ export const runSync = ({
 
     const ghInstalled = yield* gh.isGhInstalled();
     if (ghInstalled) {
-      const prMap = yield* refreshStackedPRBodies({
+      yield* refreshStackedPRBodies({
         branches,
         stackName: result.name,
         gh,
       });
-      const mergedBranches = branches.filter(
-        (branch) => (prMap.get(branch)?.state ?? "") === "MERGED",
-      );
-      const activeBranches = branches.filter(
-        (branch) => (prMap.get(branch)?.state ?? "") !== "MERGED",
-      );
-      yield* stacks.markMergedBranches(mergedBranches);
-      yield* stacks.unmarkMergedBranches(activeBranches);
     }
 
     if (json) {

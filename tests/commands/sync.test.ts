@@ -199,7 +199,7 @@ describe("sync command", () => {
     await Effect.runPromise(program);
   });
 
-  test("sync skips merged branches when computing effective base", async () => {
+  test("sync skips merged branches entirely and reroutes children to trunk", async () => {
     const mergedStackData: StackFile = {
       version: 2,
       trunk: "main",
@@ -222,10 +222,71 @@ describe("sync command", () => {
 
       const calls = yield* recorder.calls;
       const mergeCalls = calls.filter((c) => c.service === "Git" && c.method === "mergeBranch");
+      // feat-a is merged → skipped; feat-b and feat-c still merge.
+      expect(mergeCalls.length).toBe(2);
+
+      const featBCall = mergeCalls[0];
+      expect((featBCall?.args as { base?: string })?.base).toBe("origin/main");
+
+      // No checkout/push for feat-a (the merged branch).
+      const featACheckout = calls.find(
+        (c) =>
+          c.service === "Git" &&
+          c.method === "checkout" &&
+          (c.args as { name?: string })?.name === "feat-a",
+      );
+      expect(featACheckout).toBeUndefined();
+      const featAPush = calls.find(
+        (c) =>
+          c.service === "Git" &&
+          c.method === "push" &&
+          (c.args as { branch?: string })?.branch === "feat-a",
+      );
+      expect(featAPush).toBeUndefined();
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-b", isAncestor: () => false },
+            stack: mergedStackData,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("sync --include-merged forces merged branches back into the loop", async () => {
+    const mergedStackData: StackFile = {
+      version: 2,
+      trunk: "main",
+      stacks: {
+        "feat-a": { root: "feat-a" },
+      },
+      branches: {
+        "feat-a": { stack: "feat-a", parent: null },
+        "feat-b": { stack: "feat-a", parent: "feat-a" },
+        "feat-c": { stack: "feat-a", parent: "feat-b" },
+      },
+      mergedBranches: ["feat-a"],
+    };
+
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(sync, { version: "test" });
+
+      yield* run(["--include-merged"]);
+
+      const calls = yield* recorder.calls;
+      const mergeCalls = calls.filter((c) => c.service === "Git" && c.method === "mergeBranch");
+      // With --include-merged, feat-a is merged into too → 3 calls.
       expect(mergeCalls.length).toBe(3);
 
+      // feat-b's base is feat-a (not rerouted to trunk).
       const featBCall = mergeCalls[1];
-      expect((featBCall?.args as { base?: string })?.base).toBe("origin/main");
+      expect((featBCall?.args as { base?: string })?.base).toBe("feat-a");
     }).pipe(
       Effect.provide(
         Layer.mergeAll(

@@ -27,7 +27,8 @@
 - Push is plain `git push` (no force) since merges only grow history forward.
 - `sync` also pushes branches whose local tip is ahead of `origin/<branch>` (or where the remote ref doesn't exist yet) — committed-but-unpushed work is detected and pushed even when no merge was needed.
 - `submit` runs `sync` first by default (skip with `--no-sync`), then pushes (without force) and creates/updates PRs and refreshes stack metadata in PR bodies. The shared sync entry point is `runSync` exported from `commands/sync.ts`.
-- `status` lists every branch in the current stack with per-branch push state (`↑N` for unpushed commits, `(no remote)` for branches never pushed). Driven by `Git.aheadCount`.
+- Merged PRs are detected upfront in `sync` (via `gh.getPR`) and persisted in `stacked.json#mergedBranches`. Merged branches are then **skipped entirely** by `sync` and `submit` — no merge, no push, no PR mutation. They remain in `stacked.json` and continue to render in the PR-body metadata table (with ✅) for bookkeeping. Children of a merged branch are reparented to the next non-merged ancestor (or trunk). `sync --include-merged` opts back in.
+- `status` lists every branch in the current stack with per-branch push state (`↑N` for unpushed commits, `(no remote)` for branches never pushed, dim `✓ (merged)` for branches whose PRs have merged). Driven by `Git.aheadCount`.
 - Commands assume linear stacks; forked branch trees are detected but intentionally not stacked.
 - `detect` treats metadata as source of truth for managed branches and only infers parentage for untracked branches.
 - `amend` reuses the merge loop to propagate amended parents into children.

@@ -11,6 +11,7 @@ interface BranchStatus {
   current: boolean;
   ahead: number;
   hasRemote: boolean;
+  merged: boolean;
 }
 
 export const status = Command.make("status", { json: jsonFlag }).pipe(
@@ -27,6 +28,8 @@ export const status = Command.make("status", { json: jsonFlag }).pipe(
       const currentBranch = yield* git.currentBranch();
       const clean = yield* git.isClean();
       const result = yield* stacks.currentStack();
+      const data = yield* stacks.load();
+      const mergedSet = new Set(data.mergedBranches);
 
       const branchStatuses: BranchStatus[] =
         result === null
@@ -40,6 +43,7 @@ export const status = Command.make("status", { json: jsonFlag }).pipe(
                     current: branch === currentBranch,
                     ahead,
                     hasRemote,
+                    merged: mergedSet.has(branch),
                   })),
                   Effect.catchTag("GitError", () =>
                     Effect.succeed({
@@ -47,6 +51,7 @@ export const status = Command.make("status", { json: jsonFlag }).pipe(
                       current: branch === currentBranch,
                       ahead: 0,
                       hasRemote: true,
+                      merged: mergedSet.has(branch),
                     }),
                   ),
                 ),
@@ -82,13 +87,23 @@ export const status = Command.make("status", { json: jsonFlag }).pipe(
         lines.push(`Stack: ${stackName} ${position}`);
         lines.push("");
         for (const b of branchStatuses) {
-          const marker = b.current ? yield* stdout.cyan("●") : yield* stdout.dim("○");
-          const name = b.current ? yield* stdout.bold(b.name) : b.name;
-          const suffix = !b.hasRemote
-            ? " " + (yield* stdout.yellow("(no remote)"))
-            : b.ahead > 0
-              ? " " + (yield* stdout.yellow(`↑${b.ahead}`))
-              : "";
+          const marker = b.merged
+            ? yield* stdout.dim("✓")
+            : b.current
+              ? yield* stdout.cyan("●")
+              : yield* stdout.dim("○");
+          const name = b.merged
+            ? yield* stdout.dim(b.name)
+            : b.current
+              ? yield* stdout.bold(b.name)
+              : b.name;
+          const suffix = b.merged
+            ? " " + (yield* stdout.dim("(merged)"))
+            : !b.hasRemote
+              ? " " + (yield* stdout.yellow("(no remote)"))
+              : b.ahead > 0
+                ? " " + (yield* stdout.yellow(`↑${b.ahead}`))
+                : "";
           lines.push(`  ${marker} ${name}${suffix}`);
         }
       } else {
