@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
+import { BunServices } from "@effect/platform-bun";
 import { GitService } from "../src/services/Git.js";
 
 const DETECT_COMMIT_LIMIT = 2048;
@@ -47,7 +48,11 @@ const withCwd = async <A>(cwd: string, run: () => Promise<A>) => {
 };
 
 const runGit = async <A>(cwd: string, effect: Effect.Effect<A, unknown, GitService>) =>
-  withCwd(cwd, async () => Effect.runPromise(effect.pipe(Effect.provide(GitService.layer))));
+  withCwd(cwd, async () =>
+    Effect.runPromise(
+      effect.pipe(Effect.provide(GitService.layer), Effect.provide(BunServices.layer)),
+    ),
+  );
 
 const writeCommit = async (cwd: string, file: string, message: string) => {
   await Bun.write(join(cwd, file), `${message} ${Date.now()}\n`);

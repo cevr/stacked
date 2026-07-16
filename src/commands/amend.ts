@@ -1,6 +1,5 @@
 import { Command, Flag } from "effect/unstable/cli";
-import { Console, Effect, Option } from "effect";
-import { rename, writeFile } from "node:fs/promises";
+import { Console, Effect, FileSystem, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { ErrorCode, StackError } from "../errors/index.js";
@@ -25,15 +24,16 @@ interface SyncState {
 const syncStatePath = (gitDir: string) => `${gitDir}/stacked-sync-state.json`;
 
 const writeSyncState = (gitDir: string, state: SyncState) =>
-  Effect.tryPromise({
-    try: async () => {
-      const path = syncStatePath(gitDir);
-      const tmpPath = `${path}.tmp`;
-      await writeFile(tmpPath, JSON.stringify(state, null, 2));
-      await rename(tmpPath, path);
-    },
-    catch: () => new StackError({ message: "Failed to write sync state" }),
-  }).pipe(Effect.asVoid);
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = syncStatePath(gitDir);
+    const tmpPath = `${path}.tmp`;
+    yield* fs.writeFileString(tmpPath, JSON.stringify(state, null, 2));
+    yield* fs.rename(tmpPath, path);
+  }).pipe(
+    Effect.mapError(() => new StackError({ message: "Failed to write sync state" })),
+    Effect.asVoid,
+  );
 
 export const amend = Command.make("amend", {
   edit: editFlag,

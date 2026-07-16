@@ -1,7 +1,5 @@
 import { Command, Flag } from "effect/unstable/cli";
-import { Console, Effect, Option } from "effect";
-import { existsSync } from "node:fs";
-import { unlink } from "node:fs/promises";
+import { Console, Effect, FileSystem, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { StackService } from "../services/Stack.js";
 import { success, warn } from "../ui.js";
@@ -10,13 +8,7 @@ const fixFlag = Flag.boolean("fix").pipe(Flag.withDescription("Auto-fix issues w
 const jsonFlag = Flag.boolean("json").pipe(Flag.withDescription("Output as JSON"));
 
 interface Finding {
-  type:
-    | "stale_branch"
-    | "missing_trunk"
-    | "duplicate_branch"
-    | "stale_fork_point"
-    | "stale_sync_state"
-    | "parse_error";
+  type: "missing_trunk" | "stale_fork_point" | "stale_sync_state" | "parse_error";
   message: string;
   fixed: boolean;
 }
@@ -31,10 +23,11 @@ export const doctor = Command.make("doctor", { fix: fixFlag, json: jsonFlag }).p
     Effect.gen(function* () {
       const git = yield* GitService;
       const stacks = yield* StackService;
+      const fs = yield* FileSystem.FileSystem;
 
       const data = yield* stacks.load();
       const findings: Finding[] = [];
-      const stackEntries = yield* stacks.listStacks().pipe(
+      yield* stacks.listStacks().pipe(
         Effect.catchTag("StackError", (error) =>
           Effect.sync(() => {
             findings.push({ type: "parse_error", message: error.message, fixed: false });
@@ -73,51 +66,7 @@ export const doctor = Command.make("doctor", { fix: fixFlag, json: jsonFlag }).p
         }
       }
 
-      // Check 2: all tracked branches exist in git
-      const allGitBranches = yield* git
-        .listBranches()
-        .pipe(Effect.catchTag("GitError", () => Effect.succeed([] as string[])));
-      const gitBranchSet = new Set(allGitBranches);
-
-      for (const { name: stackName, stack } of stackEntries) {
-        for (const branch of stack.branches) {
-          if (!gitBranchSet.has(branch)) {
-            if (fix) {
-              yield* stacks.removeBranch(branch);
-              findings.push({
-                type: "stale_branch",
-                message: `Removed stale branch "${branch}" from stack "${stackName}"`,
-                fixed: true,
-              });
-            } else {
-              findings.push({
-                type: "stale_branch",
-                message: `Branch "${branch}" in stack "${stackName}" does not exist in git`,
-                fixed: false,
-              });
-            }
-          }
-        }
-      }
-
-      // Check 3: no branches in multiple stacks
-      const branchToStacks = new Map<string, string[]>();
-      for (const [branch, record] of Object.entries(data.branches)) {
-        const existing = branchToStacks.get(branch) ?? [];
-        existing.push(record.stack);
-        branchToStacks.set(branch, existing);
-      }
-      for (const [branch, stackNames] of branchToStacks) {
-        if (stackNames.length > 1) {
-          findings.push({
-            type: "duplicate_branch",
-            message: `Branch "${branch}" appears in multiple stacks: ${stackNames.join(", ")}`,
-            fixed: false,
-          });
-        }
-      }
-
-      // Check 4: syncedOnto entries point at valid commits
+      // Clone-local syncedOnto entries must point at commits available in this clone.
       for (const [branch, record] of Object.entries(data.branches)) {
         if (record.syncedOnto == null) continue;
         const valid = yield* git.revParse(record.syncedOnto).pipe(
@@ -144,18 +93,18 @@ export const doctor = Command.make("doctor", { fix: fixFlag, json: jsonFlag }).p
         }
       }
 
-      // Check 5: stale sync state file from interrupted conflict merge
+      // Stale sync state file from an interrupted conflict merge.
       const gitDir = yield* git
         .revParse("--absolute-git-dir")
         .pipe(Effect.catchTag("GitError", () => Effect.succeed("")));
       if (gitDir !== "") {
         const syncStatePath = `${gitDir}/stacked-sync-state.json`;
-        if (existsSync(syncStatePath)) {
+        const syncStateExists = yield* fs
+          .exists(syncStatePath)
+          .pipe(Effect.catchTag("PlatformError", () => Effect.succeed(false)));
+        if (syncStateExists) {
           if (fix) {
-            yield* Effect.tryPromise({
-              try: () => unlink(syncStatePath),
-              catch: () => ({ _tag: "UnlinkError" as const }),
-            }).pipe(Effect.ignore);
+            yield* fs.remove(syncStatePath, { force: true }).pipe(Effect.ignore);
             findings.push({
               type: "stale_sync_state",
               message: "Removed stale sync state file (interrupted conflict merge)",

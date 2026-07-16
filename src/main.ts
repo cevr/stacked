@@ -79,9 +79,10 @@ BunRuntime.runMain(
   Effect.gen(function* () {
     const serviceLayer = StackService.layer.pipe(
       Layer.provideMerge(GitService.layer),
+      Layer.provideMerge(BunServices.layer),
       Layer.provideMerge(GitHubService.layer),
     );
-    const appLayer = Layer.mergeAll(serviceLayer, BunServices.layer);
+    const appLayer = serviceLayer;
 
     yield* preflight.pipe(
       Effect.andThen(cli),

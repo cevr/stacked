@@ -133,7 +133,7 @@ stacked --yes clean      # skip confirmation prompts
 
 ## Merged Branches
 
-Once a PR merges, its branch is detected on the next `sync` (via `gh pr view`) and added to `mergedBranches` in `.git/stacked.json`. From that point on:
+Once a PR merges, its branch is detected on the next `sync` (via `gh pr view`) and added to the shared repository metadata. From that point on:
 
 - `sync` and `submit` treat the branch as **invisible** — no merge, no push, no PR mutation.
 - Children of a merged branch reparent to the next non-merged ancestor (or trunk).
@@ -144,7 +144,11 @@ Use `stacked sync --include-merged` to force them back into the loop, or `stacke
 
 ## Data Model
 
-Stack metadata lives in `.git/stacked.json`. Active stacks are stored as explicit linear parent links plus a per-stack root, and older v1 metadata is auto-migrated on load. `mergedBranches` is a skip-list of branches whose PRs have merged — they remain in metadata for bookkeeping but are skipped by `sync`/`submit`/`detect`.
+Repository-wide stack topology lives under `$XDG_STATE_HOME/stacked` (normally `~/.local/state/stacked`) and is keyed by a normalized `origin` identity. Clones and linked worktrees of the same remote therefore see the same stacks. Set `STACKED_STATE_HOME` to override the directory.
+
+Clone-local synchronization markers are stored separately because clones can have different branch tips. Repositories without an `origin` fall back to their common Git directory and do not share metadata across clones. Existing `.git/stacked.json` files are migrated automatically after validation; conflicting legacy files stop with an error instead of silently choosing one.
+
+Active stacks are stored as explicit linear parent links plus a per-stack root. `mergedBranches` is a skip-list of branches whose PRs have merged — they remain in metadata for bookkeeping but are skipped by `sync`/`submit`/`detect`.
 
 Trunk is auto-detected on first use from `origin/HEAD` when available, then falls back to local `main`, `master`, or `develop`. Override with `stacked trunk <name>`.
 

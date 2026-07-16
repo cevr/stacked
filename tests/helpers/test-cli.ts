@@ -73,10 +73,14 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
           recorder
             .record({ service: "Git", method: "branchExists", args: { name } })
             .pipe(Effect.as(options.branches?.[name] ?? false)),
+        remoteUrl: () => Effect.succeed(Option.none()),
         remoteDefaultBranch: (remote?: string) =>
           recorder
             .record({ service: "Git", method: "remoteDefaultBranch", args: { remote } })
             .pipe(Effect.as(options.remoteDefaultBranch ?? Option.none())),
+        commonGitDir: () => Effect.succeed("/repo/.git"),
+        absoluteGitDir: () => Effect.succeed("/repo/.git"),
+        repositoryRoot: () => Effect.succeed("/repo"),
         createBranch: (name: string, from?: string) =>
           recorder.record({ service: "Git", method: "createBranch", args: { name, from } }),
         deleteBranch: (name: string, force?: boolean) =>

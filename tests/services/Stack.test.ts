@@ -4,6 +4,7 @@ import { Effect, Layer, Option } from "effect";
 import { StackService } from "../../src/services/Stack.js";
 import type { StackFile } from "../../src/services/Stack.js";
 import { GitService } from "../../src/services/Git.js";
+import { RepositoryStore } from "../../src/services/RepositoryStore.js";
 
 describe("StackService", () => {
   const initialData: StackFile = {
@@ -139,7 +140,8 @@ describe("StackService", () => {
       expect(Option.getOrUndefined(trunk)).toBe("trunk");
     }).pipe(
       Effect.provide(
-        StackService.layer.pipe(
+        StackService.layerWithStore.pipe(
+          Layer.provide(RepositoryStore.layerTest()),
           Layer.provide(
             GitService.layerTest({
               remoteDefaultBranch: () => Effect.succeed(Option.some("trunk")),
@@ -158,7 +160,8 @@ describe("StackService", () => {
       expect(Option.getOrUndefined(trunk)).toBe("master");
     }).pipe(
       Effect.provide(
-        StackService.layer.pipe(
+        StackService.layerWithStore.pipe(
+          Layer.provide(RepositoryStore.layerTest()),
           Layer.provide(
             GitService.layerTest({
               remoteDefaultBranch: () => Effect.succeed(Option.none()),
@@ -177,7 +180,8 @@ describe("StackService", () => {
       expect(Option.isNone(trunk)).toBe(true);
     }).pipe(
       Effect.provide(
-        StackService.layer.pipe(
+        StackService.layerWithStore.pipe(
+          Layer.provide(RepositoryStore.layerTest()),
           Layer.provide(
             GitService.layerTest({
               remoteDefaultBranch: () => Effect.succeed(Option.none()),
@@ -244,6 +248,161 @@ describe("StackService", () => {
       expect(data.branches).toEqual({});
     }).pipe(Effect.provide(StackService.layerTest())),
   );
+
+  it.effect("repairs the historical self-parent root corruption", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const stack = yield* stacks.getStack("feat-a");
+      const data = yield* stacks.load();
+
+      expect(stack?.branches).toEqual(["feat-a"]);
+      expect(data.branches["feat-a"]?.parent).toBeNull();
+      expect(data.branches["feat-a"]?.syncedOnto).toBeUndefined();
+    }).pipe(
+      Effect.provide(
+        StackService.layerTest({
+          version: 2,
+          trunk: "main",
+          stacks: { "feat-a": { root: "feat-a" } },
+          branches: {
+            "feat-a": { stack: "feat-a", parent: "feat-a", syncedOnto: "stale-parent" },
+          },
+        }),
+      ),
+    ),
+  );
+
+  it.effect("imports legacy metadata into the repository store once", () => {
+    const storeLayer = RepositoryStore.layerTest({
+      legacyFiles: [
+        {
+          path: "/legacy/.git/stacked.json",
+          text: JSON.stringify(initialData),
+        },
+      ],
+    });
+    return Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const store = yield* RepositoryStore;
+
+      expect((yield* stacks.getStack("feat-a"))?.branches).toEqual(["feat-a", "feat-b", "feat-c"]);
+      expect(Option.isSome(yield* store.loadGlobal())).toBe(true);
+      expect(yield* store.legacyFiles()).toEqual([]);
+    }).pipe(
+      Effect.provide(
+        StackService.layerWithStore.pipe(
+          Layer.provideMerge(storeLayer),
+          Layer.provide(GitService.layerTest()),
+        ),
+      ),
+    );
+  });
+
+  it.effect("refuses conflicting legacy metadata", () => {
+    const storeLayer = RepositoryStore.layerTest({
+      legacyFiles: [
+        { path: "/clone/.git/stacked.json", text: JSON.stringify(initialData) },
+        {
+          path: "/worktree/.git/stacked.json",
+          text: JSON.stringify({ ...initialData, trunk: "develop" }),
+        },
+      ],
+    });
+    return Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const error = yield* stacks.load().pipe(Effect.flip);
+
+      expect(error.message).toContain("Legacy stack metadata conflicts");
+    }).pipe(
+      Effect.provide(
+        StackService.layerWithStore.pipe(
+          Layer.provide(storeLayer),
+          Layer.provide(GitService.layerTest()),
+        ),
+      ),
+    );
+  });
+
+  it.effect("migrates matching legacy topology with checkout-local sync markers", () => {
+    const legacy = {
+      version: 2 as const,
+      trunk: "main",
+      stacks: { "feat-a": { root: "feat-a" } },
+      branches: {
+        "feat-a": { stack: "feat-a", parent: null, syncedOnto: "current-checkout" },
+      },
+    };
+    const storeLayer = RepositoryStore.layerTest({
+      legacyFiles: [
+        {
+          path: "/test/repo/.git/worktrees/other/stacked.json",
+          text: JSON.stringify({
+            ...legacy,
+            branches: {
+              "feat-a": { ...legacy.branches["feat-a"], syncedOnto: "other-worktree" },
+            },
+          }),
+        },
+        { path: "/test/repo/.git/stacked.json", text: JSON.stringify(legacy) },
+      ],
+    });
+    return Effect.gen(function* () {
+      const stacks = yield* StackService;
+
+      expect(yield* stacks.getSyncedOnto("feat-a")).toBe("current-checkout");
+    }).pipe(
+      Effect.provide(
+        StackService.layerWithStore.pipe(
+          Layer.provide(storeLayer),
+          Layer.provide(GitService.layerTest()),
+        ),
+      ),
+    );
+  });
+
+  it.effect("seeds missing checkout state from the current legacy worktree", () => {
+    const topology = {
+      version: 2 as const,
+      trunk: "main",
+      stacks: { "feat-a": { root: "feat-a" } },
+      branches: { "feat-a": { stack: "feat-a", parent: null } },
+    };
+    const storeLayer = RepositoryStore.layerTest({
+      global: `${JSON.stringify(topology)}\n`,
+      legacyFiles: [
+        {
+          path: "/test/repo/.git/worktrees/other/stacked.json",
+          text: JSON.stringify({
+            ...topology,
+            branches: {
+              "feat-a": { ...topology.branches["feat-a"], syncedOnto: "other-worktree" },
+            },
+          }),
+        },
+        {
+          path: "/test/repo/.git/stacked.json",
+          text: JSON.stringify({
+            ...topology,
+            branches: {
+              "feat-a": { ...topology.branches["feat-a"], syncedOnto: "current-worktree" },
+            },
+          }),
+        },
+      ],
+    });
+    return Effect.gen(function* () {
+      const stacks = yield* StackService;
+
+      expect(yield* stacks.getSyncedOnto("feat-a")).toBe("current-worktree");
+    }).pipe(
+      Effect.provide(
+        StackService.layerWithStore.pipe(
+          Layer.provide(storeLayer),
+          Layer.provide(GitService.layerTest()),
+        ),
+      ),
+    );
+  });
 
   it.effect("projects one active parent truth across merged branches", () =>
     Effect.gen(function* () {

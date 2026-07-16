@@ -299,17 +299,17 @@ After reordering, run `stacked sync` to merge the new parents into children.
 
 ## Doctor
 
-Check stack metadata for issues (stale branches, missing trunk, duplicates):
+Check shared topology and clone-local synchronization state for issues:
 
 ```sh
 stacked doctor            # report issues
-stacked doctor --fix      # auto-fix where possible (remove stale branches, auto-detect trunk)
+stacked doctor --fix      # auto-fix where possible (trunk, sync markers, interrupted sync)
 stacked doctor --json     # structured output
 ```
 
 ## Error Codes
 
-All errors include a machine-readable code for programmatic handling:
+Coded errors include a machine-readable value for programmatic handling:
 
 | Code                  | Meaning                                     |
 | --------------------- | ------------------------------------------- |
@@ -344,11 +344,16 @@ Usage errors (invalid args, bad state) exit code 2. Operational errors (git/gh f
 
 ## Data Model
 
-Stack metadata lives in `.git/stacked.json`. Each branch record stores:
+Repository-wide Stack topology lives under `$XDG_STATE_HOME/stacked` (normally `~/.local/state/stacked`) and is keyed through normalized `origin` aliases. SSH and HTTPS clones of the same remote, plus linked worktrees, see the same Stacks. Override the location with `STACKED_STATE_HOME`.
+
+Repositories without an `origin` use the common Git directory as their identity and therefore do not share topology across clones. Legacy `.git/stacked.json` files migrate automatically only when their normalized topology agrees.
+
+Each shared Branch record stores:
 
 - `stack` — which stack it belongs to
 - `parent` — parent branch name (null for root)
-- `syncedOnto` — (optional) the parent branch tip SHA at last sync, used for incremental sync
+
+Clone-local state separately stores `syncedOnto`, the Parent tip at last synchronization. Linked worktrees share this marker, while duplicate clones do not.
 
 Trunk is auto-detected on first use from `origin/HEAD` when available, then falls back to local `main`, `master`, or `develop`. Override with `stacked trunk <name>`.
 
@@ -392,7 +397,7 @@ stacked down  # go to previous branch
 - `stacked sync` requires a clean working tree — commit or stash first (except `--dry-run`)
 - `stacked sync` fast-forwards trunk onto `origin/<trunk>` — if trunk has diverged, sync aborts so you can reconcile manually
 - `stacked sync` skips branches whose parent hasn't moved since last sync
-- `stacked sync` and `stacked submit` skip branches whose PRs have merged — they stay in `stacked.json` for bookkeeping (and continue rendering in PR metadata tables with ✅), but no merge/push/PR-mutation happens. Children reparent to the next non-merged ancestor. Use `stacked clean` to remove them, or `stacked sync --include-merged` to force them back into the loop
+- `stacked sync` and `stacked submit` skip branches whose PRs have merged — they stay in shared topology for bookkeeping (and continue rendering in PR metadata tables with ✅), but no merge/push/PR-mutation happens. Children reparent to the next non-merged ancestor. Use `stacked clean` to remove them, or `stacked sync --include-merged` to force them back into the loop
 - `stacked sync` leaves the merge in progress on conflict — resolve, `git add`, then `stacked sync --continue` (or `--abort`)
 - `syncedOnto` metadata may become stale if branches are manipulated outside `stacked` — doctor clears stale entries; first sync re-establishes from `merge-base`
 - `stacked submit` plain-pushes (no force). Since sync only merges, history always fast-forwards
@@ -406,5 +411,5 @@ stacked down  # go to previous branch
 - Detached HEAD is detected and produces a clear error — checkout a branch first
 - Stack file writes are atomic (write to tmp, then rename) to prevent corruption
 - `create` and `adopt` are idempotent — safe to re-run after transient failures
-- Use `stacked doctor` to detect and fix metadata drift (stale branches, missing trunk, stale syncedOnto)
+- Use `stacked doctor` to detect and fix invalid topology, missing trunk, and clone-local sync drift
 - `stacked doctor --fix` clears stale `syncedOnto` entries pointing at non-existent commits

@@ -1,7 +1,5 @@
 import { Command, Flag } from "effect/unstable/cli";
-import { Console, type Context, Effect, Option } from "effect";
-import { existsSync } from "node:fs";
-import { readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { Console, type Context, Effect, FileSystem, Option } from "effect";
 import { GitService } from "../services/Git.js";
 import { GitHubService } from "../services/GitHub.js";
 import { StackService } from "../services/Stack.js";
@@ -87,33 +85,41 @@ interface SyncState {
 
 const syncStatePath = (gitDir: string) => `${gitDir}/stacked-sync-state.json`;
 
-const readSyncState = (gitDir: string): Effect.Effect<SyncState | null> =>
-  Effect.tryPromise({
-    try: async () => {
-      const path = syncStatePath(gitDir);
-      if (!existsSync(path)) return null;
-      const content = await readFile(path, "utf-8");
-      return JSON.parse(content) as SyncState;
-    },
-    catch: () => new StackError({ message: "Failed to read sync state" }),
+const readSyncState = (
+  gitDir: string,
+): Effect.Effect<SyncState | null, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = syncStatePath(gitDir);
+    const exists = yield* fs.exists(path);
+    if (!exists) return null;
+    const content = yield* fs.readFileString(path);
+    return yield* Effect.try({
+      try: () => JSON.parse(content) as SyncState,
+      catch: () => new StackError({ message: "Failed to read sync state" }),
+    });
   }).pipe(Effect.catch(() => Effect.succeed(null)));
 
 const writeSyncState = (gitDir: string, state: SyncState) =>
-  Effect.tryPromise({
-    try: async () => {
-      const path = syncStatePath(gitDir);
-      const tmpPath = `${path}.tmp`;
-      await writeFile(tmpPath, JSON.stringify(state, null, 2));
-      await rename(tmpPath, path);
-    },
-    catch: () => new StackError({ message: "Failed to write sync state" }),
-  }).pipe(Effect.asVoid);
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = syncStatePath(gitDir);
+    const tmpPath = `${path}.tmp`;
+    yield* fs.writeFileString(tmpPath, JSON.stringify(state, null, 2));
+    yield* fs.rename(tmpPath, path);
+  }).pipe(
+    Effect.mapError(() => new StackError({ message: "Failed to write sync state" })),
+    Effect.asVoid,
+  );
 
 const deleteSyncState = (gitDir: string) =>
-  Effect.tryPromise({
-    try: () => unlink(syncStatePath(gitDir)),
-    catch: () => new StackError({ message: "Failed to delete sync state" }),
-  }).pipe(Effect.ignore);
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    yield* fs.remove(syncStatePath(gitDir), { force: true });
+  }).pipe(
+    Effect.mapError(() => new StackError({ message: "Failed to delete sync state" })),
+    Effect.ignore,
+  );
 
 export const sync = Command.make("sync", {
   trunk: trunkFlag,

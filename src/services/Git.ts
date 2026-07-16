@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { Context, Effect, Layer, Option } from "effect";
+import { Context, Effect, FileSystem, Layer, Option } from "effect";
 import { GitError } from "../errors/index.js";
 
 export class GitService extends Context.Service<
@@ -8,7 +7,11 @@ export class GitService extends Context.Service<
     readonly currentBranch: () => Effect.Effect<string, GitError>;
     readonly listBranches: () => Effect.Effect<string[], GitError>;
     readonly branchExists: (name: string) => Effect.Effect<boolean, GitError>;
+    readonly remoteUrl: (remote?: string) => Effect.Effect<Option.Option<string>, never>;
     readonly remoteDefaultBranch: (remote?: string) => Effect.Effect<Option.Option<string>, never>;
+    readonly commonGitDir: () => Effect.Effect<string, GitError>;
+    readonly absoluteGitDir: () => Effect.Effect<string, GitError>;
+    readonly repositoryRoot: () => Effect.Effect<string, GitError>;
     readonly createBranch: (name: string, from?: string) => Effect.Effect<void, GitError>;
     readonly deleteBranch: (name: string, force?: boolean) => Effect.Effect<void, GitError>;
     readonly checkout: (name: string) => Effect.Effect<void, GitError>;
@@ -43,222 +46,246 @@ export class GitService extends Context.Service<
     readonly conflictedFiles: () => Effect.Effect<string[], GitError>;
   }
 >()("@cvr/stacked/services/Git/GitService") {
-  static layer: Layer.Layer<GitService> = Layer.sync(GitService, () => {
-    const run = Effect.fn("git.run")(function* (args: readonly string[]) {
-      const proc = yield* Effect.sync(() =>
-        Bun.spawn(["git", ...args], {
-          stdout: "pipe",
-          stderr: "pipe",
-        }),
-      );
-
-      const exitCode = yield* Effect.tryPromise({
-        try: () => proc.exited,
-        catch: (e) =>
-          new GitError({ message: `Process failed: ${e}`, command: `git ${args.join(" ")}` }),
-      }).pipe(
-        Effect.onInterrupt(() =>
-          Effect.sync(() => {
-            proc.kill();
+  static layer: Layer.Layer<GitService, never, FileSystem.FileSystem> = Layer.effect(
+    GitService,
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const run = Effect.fn("git.run")(function* (args: readonly string[]) {
+        const proc = yield* Effect.sync(() =>
+          Bun.spawn(["git", ...args], {
+            stdout: "pipe",
+            stderr: "pipe",
           }),
-        ),
-      );
-      const stdout = yield* Effect.tryPromise({
-        try: () => new Response(proc.stdout).text(),
-        catch: (e) =>
-          new GitError({
-            message: `Failed to read stdout: ${e}`,
-            command: `git ${args.join(" ")}`,
-          }),
-      });
-      const stderr = yield* Effect.tryPromise({
-        try: () => new Response(proc.stderr).text(),
-        catch: (e) =>
-          new GitError({
-            message: `Failed to read stderr: ${e}`,
-            command: `git ${args.join(" ")}`,
-          }),
-      });
+        );
 
-      if (exitCode !== 0) {
-        return yield* new GitError({
-          message: stderr.trim() || `git ${args[0]} failed with exit code ${exitCode}`,
-          command: `git ${args.join(" ")}`,
-        });
-      }
-      return stdout.trim();
-    });
-
-    return {
-      currentBranch: () =>
-        run(["rev-parse", "--abbrev-ref", "HEAD"]).pipe(
-          Effect.filterOrFail(
-            (branch) => branch !== "HEAD",
-            () =>
-              new GitError({
-                message: "HEAD is detached — checkout a branch first",
-                command: "git rev-parse --abbrev-ref HEAD",
-              }),
-          ),
-        ),
-
-      listBranches: () =>
-        run([
-          "for-each-ref",
-          "--sort=-committerdate",
-          "--format=%(refname:short)",
-          "refs/heads",
-        ]).pipe(
-          Effect.map((output) =>
-            output
-              .split("\n")
-              .map((b) => b.trim())
-              .filter((b) => b.length > 0),
-          ),
-        ),
-
-      branchExists: (name) =>
-        run(["rev-parse", "--verify", `refs/heads/${name}`]).pipe(
-          Effect.as(true),
-          Effect.catchTag("GitError", () => Effect.succeed(false)),
-        ),
-
-      remoteDefaultBranch: (remote = "origin") =>
-        run(["symbolic-ref", "--quiet", "--short", `refs/remotes/${remote}/HEAD`]).pipe(
-          Effect.map((ref) => {
-            const prefix = `${remote}/`;
-            return Option.some(ref.startsWith(prefix) ? ref.slice(prefix.length) : ref);
-          }),
-          Effect.catchTag("GitError", () => Effect.succeed(Option.none())),
-        ),
-
-      createBranch: (name, from) => {
-        const args = from !== undefined ? ["checkout", "-b", name, from] : ["checkout", "-b", name];
-        return run(args).pipe(Effect.asVoid);
-      },
-
-      deleteBranch: (name, force) =>
-        run(["branch", force === true ? "-D" : "-d", "--", name]).pipe(Effect.asVoid),
-
-      checkout: (name) => run(["checkout", name]).pipe(Effect.asVoid),
-
-      push: (branch) => run(["push", "-u", "origin", branch]).pipe(Effect.asVoid),
-
-      log: (branch, options) => {
-        const args = ["log", branch];
-        if (options?.oneline === true) args.push("--oneline");
-        if (options?.limit !== undefined) args.push("-n", `${options.limit}`);
-        return run(args);
-      },
-
-      isClean: () => run(["status", "--porcelain"]).pipe(Effect.map((r) => r === "")),
-
-      revParse: (ref) => run(["rev-parse", ref]),
-
-      isAncestor: (ancestor, descendant) =>
-        run(["merge-base", "--is-ancestor", ancestor, descendant]).pipe(
-          Effect.as(true),
-          Effect.catchTag("GitError", () => Effect.succeed(false)),
-        ),
-
-      mergeBase: (a, b) => run(["merge-base", a, b]),
-
-      firstParentUniqueCommits: (ref, base, options) => {
-        const args = ["rev-list", "--first-parent"];
-        if (options?.limit !== undefined) args.push("--max-count", `${options.limit}`);
-        args.push(ref, `^${base}`);
-        return run(args).pipe(
-          Effect.map((output) =>
-            output
-              .split("\n")
-              .map((line) => line.trim())
-              .filter((line) => line.length > 0),
+        const exitCode = yield* Effect.tryPromise({
+          try: () => proc.exited,
+          catch: (e) =>
+            new GitError({ message: `Process failed: ${e}`, command: `git ${args.join(" ")}` }),
+        }).pipe(
+          Effect.onInterrupt(() =>
+            Effect.sync(() => {
+              proc.kill();
+            }),
           ),
         );
-      },
+        const stdout = yield* Effect.tryPromise({
+          try: () => new Response(proc.stdout).text(),
+          catch: (e) =>
+            new GitError({
+              message: `Failed to read stdout: ${e}`,
+              command: `git ${args.join(" ")}`,
+            }),
+        });
+        const stderr = yield* Effect.tryPromise({
+          try: () => new Response(proc.stderr).text(),
+          catch: (e) =>
+            new GitError({
+              message: `Failed to read stderr: ${e}`,
+              command: `git ${args.join(" ")}`,
+            }),
+        });
 
-      isMergeInProgress: () =>
-        run(["rev-parse", "--git-dir"]).pipe(
-          Effect.map((gitDir) => existsSync(`${gitDir}/MERGE_HEAD`)),
-          Effect.catch(() => Effect.succeed(false)),
-        ),
-
-      commitAmend: (options) => {
-        if (options?.edit === true) {
-          return Effect.tryPromise({
-            try: async () => {
-              const proc = Bun.spawn(["git", "commit", "--amend"], {
-                stdin: "inherit",
-                stdout: "inherit",
-                stderr: "inherit",
-              });
-              const exitCode = await proc.exited;
-              if (exitCode !== 0) {
-                throw new Error(`git commit --amend failed with exit code ${exitCode}`);
-              }
-            },
-            catch: (e) =>
-              new GitError({
-                message: `Process failed: ${e}`,
-                command: "git commit --amend",
-              }),
-          }).pipe(Effect.asVoid);
+        if (exitCode !== 0) {
+          return yield* new GitError({
+            message: stderr.trim() || `git ${args[0]} failed with exit code ${exitCode}`,
+            command: `git ${args.join(" ")}`,
+          });
         }
-        return run(["commit", "--amend", "--no-edit"]).pipe(Effect.asVoid);
-      },
+        return stdout.trim();
+      });
 
-      fetch: (remote) => run(["fetch", remote ?? "origin"]).pipe(Effect.asVoid),
-
-      deleteRemoteBranch: (branch) =>
-        run(["push", "origin", "--delete", branch]).pipe(Effect.asVoid),
-
-      mergeFastForward: (ref) => run(["merge", "--ff-only", ref]).pipe(Effect.asVoid),
-
-      aheadCount: (branch) =>
-        run(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]).pipe(
-          Effect.matchEffect({
-            onFailure: () => Effect.succeed({ ahead: 0, hasRemote: false }),
-            onSuccess: () =>
-              run(["rev-list", "--count", branch, `^refs/remotes/origin/${branch}`]).pipe(
-                Effect.map((output) => ({
-                  ahead: Number.parseInt(output.trim(), 10),
-                  hasRemote: true,
-                })),
-              ),
-          }),
-        ),
-
-      mergeBranch: ({ base, message }) =>
-        run(["merge", "--no-ff", "--no-edit", "-m", message, base]).pipe(
-          Effect.map((output) =>
-            output.toLowerCase().includes("already up to date")
-              ? ({ action: "up-to-date" } as const)
-              : ({ action: "merged" } as const),
+      return {
+        currentBranch: () =>
+          run(["rev-parse", "--abbrev-ref", "HEAD"]).pipe(
+            Effect.filterOrFail(
+              (branch) => branch !== "HEAD",
+              () =>
+                new GitError({
+                  message: "HEAD is detached — checkout a branch first",
+                  command: "git rev-parse --abbrev-ref HEAD",
+                }),
+            ),
           ),
-        ),
 
-      mergeContinue: () => run(["commit", "--no-edit"]).pipe(Effect.asVoid),
-
-      mergeAbort: () => run(["merge", "--abort"]).pipe(Effect.asVoid),
-
-      conflictedFiles: () =>
-        run(["diff", "--name-only", "--diff-filter=U"]).pipe(
-          Effect.map((output) =>
-            output
-              .split("\n")
-              .map((f) => f.trim())
-              .filter((f) => f.length > 0),
+        listBranches: () =>
+          run([
+            "for-each-ref",
+            "--sort=-committerdate",
+            "--format=%(refname:short)",
+            "refs/heads",
+          ]).pipe(
+            Effect.map((output) =>
+              output
+                .split("\n")
+                .map((b) => b.trim())
+                .filter((b) => b.length > 0),
+            ),
           ),
-        ),
-    };
-  });
+
+        branchExists: (name) =>
+          run(["rev-parse", "--verify", `refs/heads/${name}`]).pipe(
+            Effect.as(true),
+            Effect.catchTag("GitError", () => Effect.succeed(false)),
+          ),
+
+        remoteUrl: (remote = "origin") =>
+          run(["remote", "get-url", remote]).pipe(
+            Effect.map(Option.some),
+            Effect.catchTag("GitError", () => Effect.succeed(Option.none())),
+          ),
+
+        remoteDefaultBranch: (remote = "origin") =>
+          run(["symbolic-ref", "--quiet", "--short", `refs/remotes/${remote}/HEAD`]).pipe(
+            Effect.map((ref) => {
+              const prefix = `${remote}/`;
+              return Option.some(ref.startsWith(prefix) ? ref.slice(prefix.length) : ref);
+            }),
+            Effect.catchTag("GitError", () => Effect.succeed(Option.none())),
+          ),
+
+        commonGitDir: () => run(["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+
+        absoluteGitDir: () => run(["rev-parse", "--path-format=absolute", "--absolute-git-dir"]),
+
+        repositoryRoot: () => run(["rev-parse", "--show-toplevel"]),
+
+        createBranch: (name, from) => {
+          const args =
+            from !== undefined ? ["checkout", "-b", name, from] : ["checkout", "-b", name];
+          return run(args).pipe(Effect.asVoid);
+        },
+
+        deleteBranch: (name, force) =>
+          run(["branch", force === true ? "-D" : "-d", "--", name]).pipe(Effect.asVoid),
+
+        checkout: (name) => run(["checkout", name]).pipe(Effect.asVoid),
+
+        push: (branch) => run(["push", "-u", "origin", branch]).pipe(Effect.asVoid),
+
+        log: (branch, options) => {
+          const args = ["log", branch];
+          if (options?.oneline === true) args.push("--oneline");
+          if (options?.limit !== undefined) args.push("-n", `${options.limit}`);
+          return run(args);
+        },
+
+        isClean: () => run(["status", "--porcelain"]).pipe(Effect.map((r) => r === "")),
+
+        revParse: (ref) => run(["rev-parse", ref]),
+
+        isAncestor: (ancestor, descendant) =>
+          run(["merge-base", "--is-ancestor", ancestor, descendant]).pipe(
+            Effect.as(true),
+            Effect.catchTag("GitError", () => Effect.succeed(false)),
+          ),
+
+        mergeBase: (a, b) => run(["merge-base", a, b]),
+
+        firstParentUniqueCommits: (ref, base, options) => {
+          const args = ["rev-list", "--first-parent"];
+          if (options?.limit !== undefined) args.push("--max-count", `${options.limit}`);
+          args.push(ref, `^${base}`);
+          return run(args).pipe(
+            Effect.map((output) =>
+              output
+                .split("\n")
+                .map((line) => line.trim())
+                .filter((line) => line.length > 0),
+            ),
+          );
+        },
+
+        isMergeInProgress: () =>
+          run(["rev-parse", "--git-dir"]).pipe(
+            Effect.flatMap((gitDir) => fs.exists(`${gitDir}/MERGE_HEAD`)),
+            Effect.catchTags({
+              GitError: () => Effect.succeed(false),
+              PlatformError: () => Effect.succeed(false),
+            }),
+          ),
+
+        commitAmend: (options) => {
+          if (options?.edit === true) {
+            return Effect.tryPromise({
+              try: async () => {
+                const proc = Bun.spawn(["git", "commit", "--amend"], {
+                  stdin: "inherit",
+                  stdout: "inherit",
+                  stderr: "inherit",
+                });
+                const exitCode = await proc.exited;
+                if (exitCode !== 0) {
+                  throw new Error(`git commit --amend failed with exit code ${exitCode}`);
+                }
+              },
+              catch: (e) =>
+                new GitError({
+                  message: `Process failed: ${e}`,
+                  command: "git commit --amend",
+                }),
+            }).pipe(Effect.asVoid);
+          }
+          return run(["commit", "--amend", "--no-edit"]).pipe(Effect.asVoid);
+        },
+
+        fetch: (remote) => run(["fetch", remote ?? "origin"]).pipe(Effect.asVoid),
+
+        deleteRemoteBranch: (branch) =>
+          run(["push", "origin", "--delete", branch]).pipe(Effect.asVoid),
+
+        mergeFastForward: (ref) => run(["merge", "--ff-only", ref]).pipe(Effect.asVoid),
+
+        aheadCount: (branch) =>
+          run(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]).pipe(
+            Effect.matchEffect({
+              onFailure: () => Effect.succeed({ ahead: 0, hasRemote: false }),
+              onSuccess: () =>
+                run(["rev-list", "--count", branch, `^refs/remotes/origin/${branch}`]).pipe(
+                  Effect.map((output) => ({
+                    ahead: Number.parseInt(output.trim(), 10),
+                    hasRemote: true,
+                  })),
+                ),
+            }),
+          ),
+
+        mergeBranch: ({ base, message }) =>
+          run(["merge", "--no-ff", "--no-edit", "-m", message, base]).pipe(
+            Effect.map((output) =>
+              output.toLowerCase().includes("already up to date")
+                ? ({ action: "up-to-date" } as const)
+                : ({ action: "merged" } as const),
+            ),
+          ),
+
+        mergeContinue: () => run(["commit", "--no-edit"]).pipe(Effect.asVoid),
+
+        mergeAbort: () => run(["merge", "--abort"]).pipe(Effect.asVoid),
+
+        conflictedFiles: () =>
+          run(["diff", "--name-only", "--diff-filter=U"]).pipe(
+            Effect.map((output) =>
+              output
+                .split("\n")
+                .map((f) => f.trim())
+                .filter((f) => f.length > 0),
+            ),
+          ),
+      };
+    }),
+  );
 
   static layerTest = (impl: Partial<Context.Service.Shape<typeof GitService>> = {}) =>
     Layer.succeed(GitService, {
       currentBranch: () => Effect.succeed("main"),
       listBranches: () => Effect.succeed([]),
       branchExists: () => Effect.succeed(false),
+      remoteUrl: () => Effect.succeed(Option.none()),
       remoteDefaultBranch: () => Effect.succeed(Option.none()),
+      commonGitDir: () => Effect.succeed("/repo/.git"),
+      absoluteGitDir: () => Effect.succeed("/repo/.git"),
+      repositoryRoot: () => Effect.succeed("/repo"),
       createBranch: () => Effect.void,
       deleteBranch: () => Effect.void,
       checkout: () => Effect.void,

@@ -26,3 +26,11 @@ _Avoid_: Topology, branch list
 **Active Parent**:
 The nearest unmerged Parent used for synchronization and review when merged Branches remain recorded in the Lineage.
 _Avoid_: Effective base
+
+**Repository**:
+The remote-identified Git project that owns shared Stack topology across clones and linked worktrees.
+_Avoid_: Checkout, working directory
+
+**Checkout**:
+A clone's common Git directory and its local synchronization state. Linked worktrees share one Checkout.
+_Avoid_: Repository, Stack

@@ -16,26 +16,35 @@ import {
 } from "../helpers/test-cli.js";
 
 describe("doctor command logic", () => {
-  it.effect("detects stale branches not in git", () =>
-    Effect.gen(function* () {
+  test("doctor --fix preserves shared branches missing from this clone", async () => {
+    const program = Effect.gen(function* () {
       const stacks = yield* StackService;
-      const stack = yield* stacks.getStack("feat-a");
-      expect(stack?.branches).toEqual(["feat-a", "feat-b"]);
-      // With branches: { "feat-a": false, "feat-b": false }, branchExists returns false
-      // doctor would flag both as stale
+      const run = Command.runWith(doctor, { version: "test" });
+
+      yield* run(["--fix"]);
+
+      expect((yield* stacks.getStack("feat-a"))?.branches).toEqual(["feat-a", "feat-b"]);
     }).pipe(
       Effect.provide(
-        createTestLayer({
-          git: { currentBranch: "main", branches: { "feat-a": false, "feat-b": false } },
-          stack: {
-            version: 1,
-            trunk: "main",
-            stacks: { "feat-a": { branches: ["feat-a", "feat-b"] } },
-          },
-        }),
+        Layer.mergeAll(
+          createTestLayer({
+            git: {
+              currentBranch: "main",
+              branches: { main: true, "feat-a": false, "feat-b": false },
+            },
+            stack: {
+              version: 1,
+              trunk: "main",
+              stacks: { "feat-a": { branches: ["feat-a", "feat-b"] } },
+            },
+          }),
+          BunServices.layer,
+        ),
       ),
-    ),
-  );
+    );
+
+    await Effect.runPromise(program);
+  });
 
   it.effect("normalizes duplicate v1 branch entries down to one tracked branch", () =>
     Effect.gen(function* () {
@@ -59,11 +68,10 @@ describe("doctor command logic", () => {
     ),
   );
 
-  it.effect("fix mode removes stale branches", () =>
+  it.effect("StackService removes a branch explicitly", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
 
-      // Simulate what doctor --fix does: remove branches not in git
       yield* stacks.removeBranch("feat-stale");
 
       const stack = yield* stacks.getStack("feat-a");
@@ -85,7 +93,7 @@ describe("doctor command logic", () => {
     ),
   );
 
-  it.effect("fix mode reroots stack when stale root branch is removed", () =>
+  it.effect("StackService reroots after explicit root removal", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
 
@@ -215,7 +223,11 @@ describe("doctor command logic", () => {
           currentBranch: () => Effect.succeed("feat-a"),
           listBranches: () => Effect.succeed(["main", "feat-a"]),
           branchExists: (name: string) => Effect.succeed(name === "main" || name === "feat-a"),
+          remoteUrl: () => Effect.succeed(Option.none()),
           remoteDefaultBranch: () => Effect.succeed(Option.none()),
+          commonGitDir: () => Effect.succeed("/repo/.git"),
+          absoluteGitDir: () => Effect.succeed("/repo/.git"),
+          repositoryRoot: () => Effect.succeed("/repo"),
           createBranch: () => Effect.void,
           deleteBranch: () => Effect.void,
           checkout: () => Effect.void,

@@ -1,6 +1,5 @@
-import { createInterface } from "node:readline";
 import pc from "picocolors";
-import { Config, Context, Effect } from "effect";
+import { Config, Context, Effect, Terminal } from "effect";
 
 // ============================================================================
 // TTY & Color Detection
@@ -69,25 +68,15 @@ export const OutputConfig = Context.Reference("@cvr/stacked/OutputConfig", {
 // Interactive Prompts
 // ============================================================================
 
-const stdinIsTTY = process.stdin.isTTY === true;
-
 export const confirm = Effect.fn("ui.confirm")(function* (message: string) {
   const config = yield* OutputConfig;
-  if (config.yes || !stdinIsTTY) return true;
+  if (config.yes || process.stdin.isTTY !== true) return true;
 
+  const terminal = yield* Terminal.Terminal;
   process.stderr.write(`${message} [y/N] `);
-  const answer = yield* Effect.tryPromise({
-    try: () => {
-      const rl = createInterface({ input: process.stdin, output: process.stderr });
-      return new Promise<string>((resolve) => {
-        rl.question("", (ans) => {
-          rl.close();
-          resolve(ans);
-        });
-      });
-    },
-    catch: () => "n" as const,
-  });
+  const answer = yield* terminal.readLine.pipe(
+    Effect.catchTag("QuitError", () => Effect.succeed("n")),
+  );
   return answer.trim().toLowerCase() === "y";
 });
 

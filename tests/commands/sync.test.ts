@@ -489,7 +489,11 @@ describe("sync command", () => {
             recorder.record({ service: "Git", method: "currentBranch" }).pipe(Effect.as("feat-a")),
           listBranches: () => Effect.succeed([]),
           branchExists: () => Effect.succeed(false),
+          remoteUrl: () => Effect.succeed(Option.none()),
           remoteDefaultBranch: () => Effect.succeed(Option.none()),
+          commonGitDir: () => Effect.succeed("/repo/.git"),
+          absoluteGitDir: () => Effect.succeed("/repo/.git"),
+          repositoryRoot: () => Effect.succeed("/repo"),
           createBranch: () => Effect.void,
           deleteBranch: () => Effect.void,
           checkout: (name: string) =>
@@ -569,7 +573,11 @@ describe("sync command", () => {
             recorder.record({ service: "Git", method: "currentBranch" }).pipe(Effect.as("feat-c")),
           listBranches: () => Effect.succeed([]),
           branchExists: () => Effect.succeed(false),
+          remoteUrl: () => Effect.succeed(Option.none()),
           remoteDefaultBranch: () => Effect.succeed(Option.none()),
+          commonGitDir: () => Effect.succeed("/repo/.git"),
+          absoluteGitDir: () => Effect.succeed("/repo/.git"),
+          repositoryRoot: () => Effect.succeed("/repo"),
           createBranch: () => Effect.void,
           deleteBranch: () => Effect.void,
           checkout: (name: string) =>

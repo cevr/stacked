@@ -1,8 +1,9 @@
 import { Context, Effect, Layer, Option, Ref, Schema } from "effect";
-import { rename } from "node:fs/promises";
+import type { Crypto, FileSystem, Path } from "effect";
 import type { GitError } from "../errors/index.js";
 import { StackError } from "../errors/index.js";
 import { GitService } from "./Git.js";
+import { RepositoryStore } from "./RepositoryStore.js";
 
 const StackV1Schema = Schema.Struct({
   branches: Schema.Array(Schema.String),
@@ -37,8 +38,19 @@ const StackFilePersistSchema = Schema.Struct({
   version: Schema.Literal(2),
   trunk: Schema.String,
   stacks: Schema.Record(Schema.String, StackRecordSchema),
-  branches: Schema.Record(Schema.String, BranchRecordSchema),
+  branches: Schema.Record(
+    Schema.String,
+    Schema.Struct({
+      stack: Schema.String,
+      parent: Schema.NullOr(Schema.String),
+    }),
+  ),
   mergedBranches: Schema.Array(Schema.String),
+});
+
+const CheckoutStateSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  syncedOnto: Schema.Record(Schema.String, Schema.String),
 });
 
 type StackFileV1 = typeof StackFileV1Schema.Type;
@@ -133,14 +145,53 @@ const migrateV1ToV2 = (input: StackFileV1): CanonicalStackFile => {
 
 const normalizeStackFile = (input: StackFile): CanonicalStackFile => {
   const migrated = input.version === 1 ? migrateV1ToV2(input) : input;
+  const branches = { ...migrated.branches };
+  for (const [stackName, stack] of Object.entries(migrated.stacks)) {
+    const root = branches[stack.root];
+    if (root?.stack === stackName && root.parent === stack.root) {
+      branches[stack.root] = { stack: root.stack, parent: null };
+    }
+  }
   return {
     version: 2,
     trunk: migrated.trunk,
     stacks: migrated.stacks,
-    branches: migrated.branches,
+    branches,
     mergedBranches: sortUnique(migrated.mergedBranches ?? []),
   };
 };
+
+const withoutSyncState = (data: CanonicalStackFile): CanonicalStackFile => ({
+  ...data,
+  branches: Object.fromEntries(
+    Object.entries(data.branches).map(([branch, record]) => [
+      branch,
+      { stack: record.stack, parent: record.parent },
+    ]),
+  ),
+});
+
+const checkoutState = (data: CanonicalStackFile) => ({
+  version: 1 as const,
+  syncedOnto: Object.fromEntries(
+    Object.entries(data.branches).flatMap(([branch, record]) =>
+      record.syncedOnto == null ? [] : [[branch, record.syncedOnto]],
+    ),
+  ),
+});
+
+const applyCheckoutState = (
+  data: CanonicalStackFile,
+  state: typeof CheckoutStateSchema.Type,
+): CanonicalStackFile => ({
+  ...data,
+  branches: Object.fromEntries(
+    Object.entries(data.branches).map(([branch, record]) => {
+      const syncedOnto = state.syncedOnto[branch];
+      return [branch, syncedOnto === undefined ? record : { ...record, syncedOnto }];
+    }),
+  ),
+});
 
 const projectStacks = (data: CanonicalStackFile): Effect.Effect<StackSnapshot, StackError> =>
   Effect.gen(function* () {
@@ -761,108 +812,185 @@ export class StackService extends Context.Service<
     readonly setTrunk: (name: string) => Effect.Effect<void, StackError>;
   }
 >()("@cvr/stacked/services/Stack/StackService") {
-  static layer: Layer.Layer<StackService, StackError, GitService> = Layer.effect(
-    StackService,
-    Effect.gen(function* () {
-      const git = yield* GitService;
+  static layerWithStore: Layer.Layer<StackService, StackError, GitService | RepositoryStore> =
+    Layer.effect(
+      StackService,
+      Effect.gen(function* () {
+        const git = yield* GitService;
+        const store = yield* RepositoryStore;
+        const loadedGlobal = yield* Ref.make(Option.none<string>());
+        const loadedCheckout = yield* Ref.make(Option.none<string>());
 
-      // Resolve git dir once at construction time, then capture in closure
-      const gitDir = yield* git
-        .revParse("--absolute-git-dir")
-        .pipe(
-          Effect.mapError((e) => new StackError({ message: `Not a git repository: ${e.message}` })),
+        const StackFileJson = Schema.fromJsonString(
+          Schema.Union([StackFileV1Schema, StackFileV2Schema]),
         );
-      const resolvedStackFilePath = `${gitDir}/stacked.json`;
-      const stackFilePath = () => Effect.succeed(resolvedStackFilePath);
+        const PersistStackFileJson = Schema.fromJsonString(StackFilePersistSchema);
+        const CheckoutStateJson = Schema.fromJsonString(CheckoutStateSchema);
+        const decodeStackFile = Schema.decodeUnknownEffect(StackFileJson);
+        const encodeStackFile = Schema.encodeEffect(PersistStackFileJson);
+        const decodeCheckoutState = Schema.decodeUnknownEffect(CheckoutStateJson);
+        const encodeCheckoutState = Schema.encodeEffect(CheckoutStateJson);
 
-      const StackFileJson = Schema.fromJsonString(
-        Schema.Union([StackFileV1Schema, StackFileV2Schema]),
-      );
-      const PersistStackFileJson = Schema.fromJsonString(StackFilePersistSchema);
-      const decodeStackFile = Schema.decodeUnknownEffect(StackFileJson);
-      const encodeStackFile = Schema.encodeEffect(PersistStackFileJson);
-
-      const detectTrunkCandidate = Effect.fn("StackService.detectTrunkCandidate")(function* () {
-        const remoteDefault = yield* git.remoteDefaultBranch("origin");
-        if (Option.isSome(remoteDefault)) {
-          const exists = yield* git
-            .branchExists(remoteDefault.value)
-            .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
-          if (exists) return remoteDefault;
-        }
-
-        for (const candidate of ["main", "master", "develop"]) {
-          const exists = yield* git
-            .branchExists(candidate)
-            .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
-          if (exists) return Option.some(candidate);
-        }
-        return Option.none();
-      });
-
-      const detectTrunk = Effect.fn("StackService.detectTrunk")(function* () {
-        const candidate = yield* detectTrunkCandidate();
-        return Option.getOrElse(candidate, () => "main");
-      });
-
-      const load = Effect.fn("StackService.load")(function* () {
-        const path = yield* stackFilePath();
-        const file = Bun.file(path);
-        const exists = yield* Effect.tryPromise({
-          try: () => file.exists(),
-          catch: () => new StackError({ message: `Failed to check if ${path} exists` }),
+        const decode = Effect.fn("StackService.decodeStackFile")(function* (
+          text: string,
+          path: string,
+        ) {
+          return yield* decodeStackFile(text).pipe(
+            Effect.map((data) => normalizeStackFile(data as StackFile)),
+            Effect.mapError(
+              (error) => new StackError({ message: `Invalid stack metadata at ${path}: ${error}` }),
+            ),
+          );
         });
-        if (!exists) {
-          const trunk = yield* detectTrunk();
-          return { ...emptyStackFile, trunk } satisfies StackFile;
-        }
-        const text = yield* Effect.tryPromise({
-          try: () => file.text(),
-          catch: () => new StackError({ message: `Failed to read ${path}` }),
+
+        const encodeGlobal = Effect.fn("StackService.encodeStackFile")(function* (
+          data: CanonicalStackFile,
+        ) {
+          return yield* encodeStackFile(withoutSyncState(data)).pipe(
+            Effect.map((text) => `${text}\n`),
+            Effect.mapError(() => new StackError({ message: "Failed to encode stack data" })),
+          );
         });
-        return yield* decodeStackFile(text).pipe(
-          Effect.map((data) => normalizeStackFile(data as StackFile)),
-          Effect.catchTag("SchemaError", (e) =>
-            Effect.gen(function* () {
-              const backupPath = `${path}.backup`;
-              yield* Effect.tryPromise({
-                try: () => Bun.write(backupPath, text),
-                catch: () => new StackError({ message: `Failed to write backup to ${backupPath}` }),
+
+        const encodeCheckout = Effect.fn("StackService.encodeCheckoutState")(function* (
+          data: CanonicalStackFile,
+        ) {
+          return yield* encodeCheckoutState(checkoutState(data)).pipe(
+            Effect.map((text) => `${text}\n`),
+            Effect.mapError(() => new StackError({ message: "Failed to encode checkout state" })),
+          );
+        });
+
+        const save = Effect.fn("StackService.save")(function* (data: StackFile) {
+          const normalized = normalizeStackFile(data);
+          const globalText = yield* encodeGlobal(normalized);
+          const checkoutText = yield* encodeCheckout(normalized);
+          yield* store.savePair(
+            globalText,
+            yield* Ref.get(loadedGlobal),
+            checkoutText,
+            yield* Ref.get(loadedCheckout),
+          );
+          yield* Ref.set(loadedGlobal, Option.some(globalText));
+          yield* Ref.set(loadedCheckout, Option.some(checkoutText));
+        });
+
+        const detectTrunkCandidate = Effect.fn("StackService.detectTrunkCandidate")(function* () {
+          const remoteDefault = yield* git.remoteDefaultBranch("origin");
+          if (Option.isSome(remoteDefault)) {
+            const exists = yield* git
+              .branchExists(remoteDefault.value)
+              .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
+            if (exists) return remoteDefault;
+          }
+
+          for (const candidate of ["main", "master", "develop"]) {
+            const exists = yield* git
+              .branchExists(candidate)
+              .pipe(Effect.catchTag("GitError", () => Effect.succeed(false)));
+            if (exists) return Option.some(candidate);
+          }
+          return Option.none();
+        });
+
+        const detectTrunk = Effect.fn("StackService.detectTrunk")(function* () {
+          const candidate = yield* detectTrunkCandidate();
+          return Option.getOrElse(candidate, () => "main");
+        });
+
+        const load = Effect.fn("StackService.load")(function* () {
+          const globalText = yield* store.loadGlobal();
+          const checkoutText = yield* store.loadCheckout();
+          yield* Ref.set(loadedGlobal, globalText);
+          yield* Ref.set(loadedCheckout, checkoutText);
+          const legacyFiles = yield* store.legacyFiles();
+          const globalData = yield* Option.match(globalText, {
+            onNone: () => Effect.succeed(Option.none<CanonicalStackFile>()),
+            onSome: (text) => decode(text, store.location.stackFile).pipe(Effect.map(Option.some)),
+          });
+          const legacyData = yield* Effect.forEach(legacyFiles, (file) =>
+            decode(file.text, file.path).pipe(Effect.map((data) => ({ file, data }))),
+          );
+          const savedCheckout = yield* Option.match(checkoutText, {
+            onNone: () => Effect.succeed({ version: 1 as const, syncedOnto: {} }),
+            onSome: (text) =>
+              decodeCheckoutState(text).pipe(
+                Effect.mapError(
+                  (error) =>
+                    new StackError({
+                      message: `Invalid checkout state at ${store.location.checkoutFile}: ${error}`,
+                    }),
+                ),
+              ),
+          });
+
+          if (Option.isSome(globalData)) {
+            const topology = withoutSyncState(globalData.value);
+            const canonical = JSON.stringify(topology);
+            const conflict = legacyData.find(
+              ({ data }) => JSON.stringify(withoutSyncState(data)) !== canonical,
+            );
+            if (conflict !== undefined) {
+              return yield* new StackError({
+                message: `Legacy stack metadata at ${conflict.file.path} conflicts with shared metadata at ${store.location.stackFile}`,
               });
-              yield* Effect.logWarning(
-                `Corrupted stack file, resetting: ${e.message}\nBackup saved to ${backupPath}`,
-              );
-              const trunk = yield* detectTrunk();
-              return { ...emptyStackFile, trunk } satisfies StackFile;
-            }),
-          ),
-        );
-      });
+            }
+            const seedData =
+              legacyData.find(
+                ({ file }) => file.path === `${store.location.absoluteGitDirectory}/stacked.json`,
+              )?.data ??
+              legacyData[0]?.data ??
+              globalData.value;
+            const effectiveCheckout = Option.isNone(checkoutText)
+              ? checkoutState(seedData)
+              : savedCheckout;
+            if (Option.isNone(checkoutText)) {
+              const encoded = yield* encodeCheckout(seedData);
+              yield* store.saveCheckout(encoded, checkoutText);
+              yield* Ref.set(loadedCheckout, Option.some(encoded));
+            }
+            if (legacyFiles.length > 0) yield* store.archiveLegacy(legacyFiles);
+            return applyCheckoutState(topology, effectiveCheckout);
+          }
 
-      const save = Effect.fn("StackService.save")(function* (data: StackFile) {
-        const path = yield* stackFilePath();
-        const tmpPath = `${path}.tmp`;
-        const text = yield* encodeStackFile(normalizeStackFile(data)).pipe(
-          Effect.mapError(() => new StackError({ message: `Failed to encode stack data` })),
-        );
-        yield* Effect.tryPromise({
-          try: () => Bun.write(tmpPath, text + "\n"),
-          catch: () => new StackError({ message: `Failed to write ${tmpPath}` }),
-        });
-        yield* Effect.tryPromise({
-          try: () => rename(tmpPath, path),
-          catch: () => new StackError({ message: `Failed to rename ${tmpPath} to ${path}` }),
-        });
-      });
+          const [firstLegacy] = legacyData;
+          if (firstLegacy !== undefined) {
+            const canonical = JSON.stringify(withoutSyncState(firstLegacy.data));
+            const conflict = legacyData.find(
+              ({ data }) => JSON.stringify(withoutSyncState(data)) !== canonical,
+            );
+            if (conflict !== undefined) {
+              return yield* new StackError({
+                message: `Legacy stack metadata conflicts between ${firstLegacy.file.path} and ${conflict.file.path}`,
+              });
+            }
+            const currentLegacy =
+              legacyData.find(
+                ({ file }) => file.path === `${store.location.absoluteGitDirectory}/stacked.json`,
+              ) ?? firstLegacy;
+            yield* save(currentLegacy.data);
+            yield* store.archiveLegacy(legacyFiles);
+            return currentLegacy.data;
+          }
 
-      return makeStackService({
-        loadData: () => load(),
-        saveData: (data) => save(data),
-        currentBranch: () => git.currentBranch(),
-        detectTrunkCandidate: () => detectTrunkCandidate(),
-      });
-    }),
-  );
+          const trunk = yield* detectTrunk();
+          return { ...emptyStackFile, trunk } satisfies CanonicalStackFile;
+        });
+
+        return makeStackService({
+          loadData: () => load(),
+          saveData: (data) => save(data),
+          currentBranch: () => git.currentBranch(),
+          detectTrunkCandidate: () => detectTrunkCandidate(),
+        });
+      }),
+    );
+
+  static layer: Layer.Layer<
+    StackService,
+    StackError,
+    GitService | Crypto.Crypto | FileSystem.FileSystem | Path.Path
+  > = StackService.layerWithStore.pipe(Layer.provide(RepositoryStore.layer));
 
   static layerTest = (
     data?: StackFile,
