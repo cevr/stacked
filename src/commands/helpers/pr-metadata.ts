@@ -1,4 +1,4 @@
-import type { ServiceMap } from "effect";
+import type { Context } from "effect";
 import { Effect } from "effect";
 import type { GitHubService } from "../../services/GitHub.js";
 
@@ -12,7 +12,7 @@ type PullRequest = {
   body?: string | null;
 } | null;
 
-type GitHubApi = ServiceMap.Service.Shape<typeof GitHubService>;
+type GitHubApi = Context.Service.Shape<typeof GitHubService>;
 
 export const generateStackMetadata = (
   branches: readonly string[],

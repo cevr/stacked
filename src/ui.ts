@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
 import pc from "picocolors";
-import { Config, Effect, ServiceMap } from "effect";
+import { Config, Context, Effect } from "effect";
 
 // ============================================================================
 // TTY & Color Detection
@@ -10,8 +10,8 @@ const stderrIsTTY = process.stderr.isTTY === true;
 const stdoutIsTTY = process.stdout.isTTY === true;
 
 // Lazy color instances — deferred so --no-color flag can set env before first use
-let _stderrColors: ReturnType<typeof pc.createColors> | null = null;
-let _stdoutColors: ReturnType<typeof pc.createColors> | null = null;
+let stderrColorsCache: ReturnType<typeof pc.createColors> | null = null;
+let stdoutColorsCache: ReturnType<typeof pc.createColors> | null = null;
 
 const colorRuntimeConfig = Config.all({
   noColor: Config.string("NO_COLOR").pipe(
@@ -34,21 +34,21 @@ const isColorEnabled = Effect.fn("ui.isColorEnabled")(function* (isTTY: boolean)
 });
 
 const getColors = Effect.fn("ui.getColors")(function* () {
-  if (_stderrColors !== null) return _stderrColors;
+  if (stderrColorsCache !== null) return stderrColorsCache;
   const enabled = yield* isColorEnabled(stderrIsTTY).pipe(
     Effect.catchTag("ConfigError", () => Effect.succeed(false)),
   );
-  _stderrColors = enabled ? pc : pc.createColors(false);
-  return _stderrColors;
+  stderrColorsCache = enabled ? pc : pc.createColors(false);
+  return stderrColorsCache;
 });
 
 const getStdoutColors = Effect.fn("ui.getStdoutColors")(function* () {
-  if (_stdoutColors !== null) return _stdoutColors;
+  if (stdoutColorsCache !== null) return stdoutColorsCache;
   const enabled = yield* isColorEnabled(stdoutIsTTY).pipe(
     Effect.catchTag("ConfigError", () => Effect.succeed(false)),
   );
-  _stdoutColors = enabled ? pc : pc.createColors(false);
-  return _stdoutColors;
+  stdoutColorsCache = enabled ? pc : pc.createColors(false);
+  return stdoutColorsCache;
 });
 
 // ============================================================================
@@ -61,7 +61,7 @@ export interface OutputConfig {
   readonly yes: boolean;
 }
 
-export const OutputConfig = ServiceMap.Reference("@cvr/stacked/OutputConfig", {
+export const OutputConfig = Context.Reference("@cvr/stacked/OutputConfig", {
   defaultValue: (): OutputConfig => ({ verbose: false, quiet: false, yes: false }),
 });
 

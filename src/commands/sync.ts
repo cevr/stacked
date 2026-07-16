@@ -1,5 +1,5 @@
 import { Command, Flag } from "effect/unstable/cli";
-import { Console, Effect, Option, type ServiceMap } from "effect";
+import { Console, type Context, Effect, Option } from "effect";
 import { existsSync } from "node:fs";
 import { readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { GitService } from "../services/Git.js";
@@ -9,9 +9,9 @@ import { ErrorCode, StackError } from "../errors/index.js";
 import { refreshStackedPRBodies } from "./helpers/pr-metadata.js";
 import { withSpinner, success, warn } from "../ui.js";
 
-type GitApi = ServiceMap.Service.Shape<typeof GitService>;
-type StackApi = ServiceMap.Service.Shape<typeof StackService>;
-type GitHubApi = ServiceMap.Service.Shape<typeof GitHubService>;
+type GitApi = Context.Service.Shape<typeof GitService>;
+type StackApi = Context.Service.Shape<typeof StackService>;
+type GitHubApi = Context.Service.Shape<typeof GitHubService>;
 
 const detectMergedBranches = Effect.fn("detectMergedBranches")(function* (opts: {
   branches: readonly string[];

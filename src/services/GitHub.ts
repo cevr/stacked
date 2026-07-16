@@ -1,4 +1,4 @@
-import { Effect, Layer, Schema, ServiceMap } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 import { GitHubError } from "../errors/index.js";
 
 const GhPrResponse = Schema.Struct({
@@ -9,7 +9,7 @@ const GhPrResponse = Schema.Struct({
   body: Schema.NullOr(Schema.String),
 });
 
-export class GitHubService extends ServiceMap.Service<
+export class GitHubService extends Context.Service<
   GitHubService,
   {
     readonly createPR: (options: {
@@ -153,7 +153,7 @@ export class GitHubService extends ServiceMap.Service<
     };
   });
 
-  static layerTest = (impl: Partial<ServiceMap.Service.Shape<typeof GitHubService>> = {}) =>
+  static layerTest = (impl: Partial<Context.Service.Shape<typeof GitHubService>> = {}) =>
     Layer.succeed(GitHubService, {
       createPR: () => Effect.succeed({ url: "https://github.com/test/repo/pull/1", number: 1 }),
       updatePR: () => Effect.void,

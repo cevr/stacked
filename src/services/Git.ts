@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
-import { Effect, Layer, Option, ServiceMap } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import { GitError } from "../errors/index.js";
 
-export class GitService extends ServiceMap.Service<
+export class GitService extends Context.Service<
   GitService,
   {
     readonly currentBranch: () => Effect.Effect<string, GitError>;
@@ -253,7 +253,7 @@ export class GitService extends ServiceMap.Service<
     };
   });
 
-  static layerTest = (impl: Partial<ServiceMap.Service.Shape<typeof GitService>> = {}) =>
+  static layerTest = (impl: Partial<Context.Service.Shape<typeof GitService>> = {}) =>
     Layer.succeed(GitService, {
       currentBranch: () => Effect.succeed("main"),
       listBranches: () => Effect.succeed([]),

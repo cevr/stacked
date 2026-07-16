@@ -1,4 +1,4 @@
-import { Effect, Layer, Option, Ref, Schema, ServiceMap } from "effect";
+import { Context, Effect, Layer, Option, Ref, Schema } from "effect";
 import { rename } from "node:fs/promises";
 import type { GitError } from "../errors/index.js";
 import { StackError } from "../errors/index.js";
@@ -321,7 +321,7 @@ const makeStackService = ({
   saveData,
   currentBranch,
   detectTrunkCandidate,
-}: StackServiceFactoryOptions): ServiceMap.Service.Shape<typeof StackService> => {
+}: StackServiceFactoryOptions): Context.Service.Shape<typeof StackService> => {
   const snapshot = () => loadData().pipe(Effect.flatMap(projectStacks));
 
   return {
@@ -639,7 +639,7 @@ const makeStackService = ({
   };
 };
 
-export class StackService extends ServiceMap.Service<
+export class StackService extends Context.Service<
   StackService,
   {
     readonly load: () => Effect.Effect<CanonicalStackFile, StackError>;

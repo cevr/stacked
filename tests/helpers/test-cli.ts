@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, Option, Ref, ServiceMap } from "effect";
+import { Context, Effect, Layer, Option, Ref } from "effect";
 import { GitService } from "../../src/services/Git.js";
 import { StackService } from "../../src/services/Stack.js";
 import type { StackFile } from "../../src/services/Stack.js";
@@ -18,7 +18,7 @@ export interface ServiceCall {
   result?: unknown;
 }
 
-export class CallRecorder extends ServiceMap.Service<
+export class CallRecorder extends Context.Service<
   CallRecorder,
   {
     readonly record: (call: ServiceCall) => Effect.Effect<void>;
@@ -141,7 +141,7 @@ export const createMockStackService = (
 ) => StackService.layerTest(initial, options);
 
 export const createMockGitHubService = (
-  overrides: Partial<ServiceMap.Service.Shape<typeof GitHubService>> = {},
+  overrides: Partial<Context.Service.Shape<typeof GitHubService>> = {},
 ) =>
   Layer.effect(
     GitHubService,
@@ -179,7 +179,7 @@ export interface TestOptions {
   git?: MockGitOptions;
   stack?: StackFile;
   stackDetectTrunkCandidate?: Option.Option<string>;
-  github?: Partial<ServiceMap.Service.Shape<typeof GitHubService>>;
+  github?: Partial<Context.Service.Shape<typeof GitHubService>>;
 }
 
 export const createTestLayer = (options: TestOptions = {}) => {
