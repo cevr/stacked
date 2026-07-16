@@ -51,6 +51,7 @@ export interface MockGitOptions {
   remoteDefaultBranch?: Option.Option<string>;
   isAncestor?: (ancestor: string, descendant: string) => boolean;
   aheadCount?: (branch: string) => { ahead: number; hasRemote: boolean };
+  firstParentUniqueCommits?: (ref: string, base: string) => readonly string[];
 }
 
 export const createMockGitService = (options: MockGitOptions = {}) =>
@@ -108,7 +109,7 @@ export const createMockGitService = (options: MockGitOptions = {}) =>
               method: "firstParentUniqueCommits",
               args: { ref, base, ...params },
             })
-            .pipe(Effect.as([])),
+            .pipe(Effect.as(options.firstParentUniqueCommits?.(ref, base) ?? [])),
         isMergeInProgress: () => Effect.succeed(false),
         commitAmend: (opts?: { edit?: boolean }) =>
           recorder.record({ service: "Git", method: "commitAmend", args: { ...opts } }),

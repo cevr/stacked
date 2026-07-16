@@ -206,17 +206,19 @@ export const detect = Command.make("detect", { dryRun: dryRunFlag, json: jsonFla
       for (const [parent, branches] of adoptions) {
         const parentStack = yield* stacks.findBranchStack(parent);
         if (parentStack === null) continue;
+        let insertionParent = parent;
         for (const branch of branches) {
           if (dryRun) {
             yield* Console.error(
-              `Would adopt "${branch}" into stack "${parentStack.name}" after "${parent}"`,
+              `Would adopt "${branch}" into stack "${parentStack.name}" after "${insertionParent}"`,
             );
           } else {
-            yield* stacks.addBranch(parentStack.name, branch, parent);
+            yield* stacks.addBranch(parentStack.name, branch, insertionParent);
             yield* success(
-              `Adopted "${branch}" into stack "${parentStack.name}" after "${parent}"`,
+              `Adopted "${branch}" into stack "${parentStack.name}" after "${insertionParent}"`,
             );
           }
+          insertionParent = branch;
         }
       }
 

@@ -149,6 +149,41 @@ describe("detect command logic", () => {
     await Effect.runPromise(program);
   });
 
+  test("detect preserves a discovered child chain when extending an existing stack", async () => {
+    const program = Effect.gen(function* () {
+      const run = Command.runWith(detect, { version: "test" });
+      yield* run([]);
+
+      const stacks = yield* StackService;
+      const stack = yield* stacks.getStack("feat-a");
+      expect(stack?.branches).toEqual(["feat-a", "feat-b", "feat-c"]);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: {
+              currentBranch: "feat-a",
+              allBranches: ["main", "feat-a", "feat-b", "feat-c"],
+              firstParentUniqueCommits: (ref) => {
+                if (ref === "feat-b") return ["oid-feat-b", "oid-feat-a"];
+                if (ref === "feat-c") return ["oid-feat-c", "oid-feat-b", "oid-feat-a"];
+                return [];
+              },
+            },
+            stack: {
+              version: 1,
+              trunk: "main",
+              stacks: { "feat-a": { branches: ["feat-a"] } },
+            },
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
   it.effect("skips stack creation when name already exists", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;
