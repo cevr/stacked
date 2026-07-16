@@ -206,40 +206,38 @@ export const runSync = ({
       if (remainingBranches.length > 0) {
         const trunk = Option.isSome(trunkOpt) ? trunkOpt.value : yield* stacks.getTrunk();
         const originTrunk = `origin/${trunk}`;
-        const stackResult = yield* stacks.findBranchStack(conflictedBranch);
-        if (stackResult === null) {
+        const recordedLineage = yield* stacks.getLineage(conflictedBranch, { includeMerged: true });
+        if (recordedLineage === null) {
           yield* warn(`Stack not found for "${conflictedBranch}" — skipping remaining branches`);
         } else {
-          const allBranches = stackResult.stack.branches;
-          const detectedMerged = yield* detectMergedBranches({
+          const allBranches = recordedLineage.branches.map(({ name }) => name);
+          yield* detectMergedBranches({
             branches: allBranches,
             gh,
             stacks,
           });
-          const mergedSet = includeMerged ? new Set<string>() : detectedMerged;
-
-          const effectiveBase = (branch: string): string => {
-            const idx = allBranches.indexOf(branch);
-            for (let j = idx - 1; j >= 0; j--) {
-              const candidate = allBranches[j];
-              if (candidate !== undefined && !mergedSet.has(candidate)) return candidate;
-            }
-            return originTrunk;
-          };
-
-          const activeRemaining = remainingBranches.filter((b) => !mergedSet.has(b));
+          const lineage = yield* stacks.getLineage(conflictedBranch, { includeMerged });
+          const remaining = new Set(remainingBranches);
+          const activeRemaining =
+            lineage?.branches.filter(
+              (branch) => remaining.has(branch.name) && (includeMerged || !branch.merged),
+            ) ?? [];
 
           yield* Effect.gen(function* () {
-            for (const branch of activeRemaining) {
+            for (let index = 0; index < activeRemaining.length; index++) {
+              const branch = activeRemaining[index];
+              if (branch === undefined) continue;
+              const base =
+                branch.activeParent === recordedLineage.trunk ? originTrunk : branch.activeParent;
               const syncResult = yield* syncOneBranch({
                 git,
                 stacks,
-                branch,
-                effectiveBase: effectiveBase(branch),
+                branch: branch.name,
+                effectiveBase: base,
                 gitDir,
                 originalBranch,
                 allBranches,
-                remainingBranches: activeRemaining.slice(activeRemaining.indexOf(branch) + 1),
+                remainingBranches: activeRemaining.slice(index + 1).map(({ name }) => name),
                 stackName,
               });
               results.push(syncResult);
@@ -304,8 +302,8 @@ export const runSync = ({
       }
     }
 
-    const result = yield* stacks.currentStack();
-    if (result === null) {
+    const recordedLineage = yield* stacks.currentLineage({ includeMerged: true });
+    if (recordedLineage === null) {
       return yield* new StackError({
         code: ErrorCode.NOT_IN_STACK,
         message:
@@ -313,17 +311,15 @@ export const runSync = ({
       });
     }
 
-    const { branches } = result.stack;
-    const detectedMerged = yield* detectMergedBranches({ branches, gh, stacks });
-    const mergedSet = includeMerged ? new Set<string>() : detectedMerged;
-
-    const effectiveBase = (i: number, fallback: string): string => {
-      for (let j = i - 1; j >= 0; j--) {
-        const candidate = branches[j];
-        if (candidate !== undefined && !mergedSet.has(candidate)) return candidate;
-      }
-      return fallback;
-    };
+    const branches = recordedLineage.branches.map(({ name }) => name);
+    yield* detectMergedBranches({ branches, gh, stacks });
+    const lineage = yield* stacks.currentLineage({ includeMerged });
+    if (lineage === null) {
+      return yield* new StackError({
+        code: ErrorCode.NOT_IN_STACK,
+        message: "Stack lineage disappeared while refreshing merged branches.",
+      });
+    }
 
     const fromBranch = Option.isSome(fromOpt) ? fromOpt.value : undefined;
 
@@ -351,15 +347,14 @@ export const runSync = ({
         yield* Console.error(`${trunk}: fast-forward onto ${originTrunk}`);
       }
 
-      for (let i = startIdx; i < branches.length; i++) {
-        const branch = branches[i];
-        if (branch === undefined) continue;
-        if (mergedSet.has(branch)) continue;
-        const base = effectiveBase(i, originTrunk);
+      for (let i = startIdx; i < lineage.branches.length; i++) {
+        const branch = lineage.branches[i];
+        if (branch === undefined || (!includeMerged && branch.merged)) continue;
+        const base = branch.activeParent === lineage.trunk ? originTrunk : branch.activeParent;
 
         const newBaseTip = yield* git.revParse(base);
-        const branchHead = yield* git.revParse(branch);
-        const syncedOnto = yield* stacks.getSyncedOnto(branch);
+        const branchHead = yield* git.revParse(branch.name);
+        const syncedOnto = yield* stacks.getSyncedOnto(branch.name);
 
         let mergeAction: "merged" | "up-to-date";
         if (syncedOnto !== null && syncedOnto === newBaseTip) {
@@ -374,12 +369,12 @@ export const runSync = ({
         let action: SyncResult["action"] = mergeAction;
         if (mergeAction === "up-to-date") {
           const { ahead, hasRemote } = yield* git
-            .aheadCount(branch)
+            .aheadCount(branch.name)
             .pipe(Effect.catchTag("GitError", () => Effect.succeed({ ahead: 0, hasRemote: true })));
           if (!hasRemote || ahead > 0) action = "pushed";
         }
 
-        results.push({ name: branch, action, base });
+        results.push({ name: branch.name, action, base });
         if (!json) {
           const verb =
             action === "up-to-date"
@@ -387,7 +382,7 @@ export const runSync = ({
               : action === "pushed"
                 ? "push (unpushed commits)"
                 : `merge ${base}`;
-          yield* Console.error(`${branch}: ${verb}`);
+          yield* Console.error(`${branch.name}: ${verb}`);
         }
       }
 
@@ -423,24 +418,26 @@ export const runSync = ({
       );
       results.push({ name: trunk, action: "merged", base: originTrunk });
 
-      for (let i = startIdx; i < branches.length; i++) {
-        const branch = branches[i];
-        if (branch === undefined) continue;
-        if (mergedSet.has(branch)) continue;
-        const newBase = effectiveBase(i, originTrunk);
+      for (let i = startIdx; i < lineage.branches.length; i++) {
+        const branch = lineage.branches[i];
+        if (branch === undefined || (!includeMerged && branch.merged)) continue;
+        const newBase = branch.activeParent === lineage.trunk ? originTrunk : branch.activeParent;
 
-        const remainingActive = branches.slice(i + 1).filter((b) => !mergedSet.has(b));
+        const remainingActive = lineage.branches
+          .slice(i + 1)
+          .filter((entry) => includeMerged || !entry.merged)
+          .map(({ name }) => name);
 
         const syncResult = yield* syncOneBranch({
           git,
           stacks,
-          branch,
+          branch: branch.name,
           effectiveBase: newBase,
           gitDir,
           originalBranch: currentBranch,
           allBranches: branches,
           remainingBranches: remainingActive,
-          stackName: result.name,
+          stackName: lineage.name,
         });
         results.push(syncResult);
       }
@@ -466,7 +463,7 @@ export const runSync = ({
     if (ghInstalled) {
       yield* refreshStackedPRBodies({
         branches,
-        stackName: result.name,
+        stackName: lineage.name,
         gh,
       });
     }

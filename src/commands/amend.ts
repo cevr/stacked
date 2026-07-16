@@ -51,8 +51,8 @@ export const amend = Command.make("amend", {
       const stacks = yield* StackService;
 
       const currentBranch = yield* git.currentBranch();
-      const result = yield* stacks.currentStack();
-      if (result === null) {
+      const lineage = yield* stacks.currentLineage();
+      if (lineage === null) {
         return yield* new StackError({
           code: ErrorCode.NOT_IN_STACK,
           message:
@@ -62,18 +62,17 @@ export const amend = Command.make("amend", {
 
       const fromBranch = Option.isSome(from) ? from.value : currentBranch;
 
-      const { branches } = result.stack;
-      const idx = branches.indexOf(fromBranch);
+      const idx = lineage.branches.findIndex((entry) => entry.name === fromBranch);
       if (idx === -1) {
         return yield* new StackError({
           code: ErrorCode.BRANCH_NOT_FOUND,
-          message: `Branch "${fromBranch}" not found in stack "${result.name}"`,
+          message: `Branch "${fromBranch}" not found in stack "${lineage.name}"`,
         });
       }
 
       yield* git.commitAmend({ edit });
 
-      if (idx >= branches.length - 1) {
+      if (idx >= lineage.branches.length - 1) {
         if (json) {
           // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
           yield* Console.log(JSON.stringify({ amended: currentBranch, synced: [] }, null, 2));
@@ -83,25 +82,16 @@ export const amend = Command.make("amend", {
         return;
       }
 
-      const children = branches.slice(idx + 1);
+      const children = lineage.branches.slice(idx + 1);
       const synced: string[] = [];
-      const data = yield* stacks.load();
-      const mergedSet = new Set(data.mergedBranches);
       const gitDir = yield* git.revParse("--absolute-git-dir");
 
       yield* Effect.gen(function* () {
         for (let i = 0; i < children.length; i++) {
-          const branch = children[i];
-          if (branch === undefined) continue;
-
-          let newBase = fromBranch;
-          for (let j = i - 1; j >= 0; j--) {
-            const candidate = children[j];
-            if (candidate !== undefined && !mergedSet.has(candidate)) {
-              newBase = candidate;
-              break;
-            }
-          }
+          const entry = children[i];
+          if (entry === undefined) continue;
+          const branch = entry.name;
+          const newBase = entry.activeParent;
 
           const newBaseTip = yield* git.revParse(newBase);
           const branchHead = yield* git.revParse(branch);
@@ -133,9 +123,9 @@ export const amend = Command.make("amend", {
               version: 1,
               conflictedBranch: branch,
               newBaseTip,
-              stackName: result.name,
+              stackName: lineage.name,
               originalBranch: currentBranch,
-              remainingBranches: children.slice(i + 1),
+              remainingBranches: children.slice(i + 1).map((child) => child.name),
             });
 
             const files = yield* git

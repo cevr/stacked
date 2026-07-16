@@ -234,4 +234,70 @@ describe("StackService", () => {
       expect(data.branches).toEqual({});
     }).pipe(Effect.provide(StackService.layerTest())),
   );
+
+  it.effect("projects one active parent truth across merged branches", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+
+      const lineage = yield* stacks.currentLineage();
+      expect(lineage).toEqual({
+        name: "feat-a",
+        trunk: "main",
+        branches: [
+          { name: "feat-a", parent: "main", activeParent: "main", merged: true },
+          { name: "feat-b", parent: "feat-a", activeParent: "main", merged: false },
+          { name: "feat-c", parent: "feat-b", activeParent: "feat-b", merged: true },
+          { name: "feat-d", parent: "feat-c", activeParent: "feat-b", merged: false },
+        ],
+      });
+    }).pipe(
+      Effect.provide(
+        StackService.layerTest(
+          {
+            version: 2,
+            trunk: "main",
+            stacks: { "feat-a": { root: "feat-a" } },
+            branches: {
+              "feat-a": { stack: "feat-a", parent: null },
+              "feat-b": { stack: "feat-a", parent: "feat-a" },
+              "feat-c": { stack: "feat-a", parent: "feat-b" },
+              "feat-d": { stack: "feat-a", parent: "feat-c" },
+            },
+            mergedBranches: ["feat-a", "feat-c"],
+          },
+          { currentBranch: "feat-d" },
+        ),
+      ),
+    ),
+  );
+
+  it.effect("can include merged branches as active parents", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const lineage = yield* stacks.currentLineage({ includeMerged: true });
+
+      expect(lineage?.branches.map(({ name, activeParent }) => ({ name, activeParent }))).toEqual([
+        { name: "feat-a", activeParent: "main" },
+        { name: "feat-b", activeParent: "feat-a" },
+        { name: "feat-c", activeParent: "feat-b" },
+      ]);
+    }).pipe(
+      Effect.provide(
+        StackService.layerTest(
+          {
+            version: 2,
+            trunk: "main",
+            stacks: { "feat-a": { root: "feat-a" } },
+            branches: {
+              "feat-a": { stack: "feat-a", parent: null },
+              "feat-b": { stack: "feat-a", parent: "feat-a" },
+              "feat-c": { stack: "feat-a", parent: "feat-b" },
+            },
+            mergedBranches: ["feat-a"],
+          },
+          { currentBranch: "feat-c" },
+        ),
+      ),
+    ),
+  );
 });

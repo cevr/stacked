@@ -85,8 +85,8 @@ export const submit = Command.make("submit", {
         });
       }
 
-      const result = yield* stacks.currentStack();
-      if (result === null) {
+      let lineage = yield* stacks.currentLineage();
+      if (lineage === null) {
         return yield* new StackError({
           code: ErrorCode.NOT_IN_STACK,
           message:
@@ -104,22 +104,18 @@ export const submit = Command.make("submit", {
           abort: false,
           includeMerged: false,
         });
+        lineage = yield* stacks.currentLineage();
+        if (lineage === null) {
+          return yield* new StackError({
+            code: ErrorCode.NOT_IN_STACK,
+            message:
+              "Not on a stacked branch. Run 'stacked list' to see your stacks, or 'stacked create <name>' to start one.",
+          });
+        }
       }
 
-      const trunk = yield* stacks.getTrunk();
       const currentBranch = yield* git.currentBranch();
-      const { branches } = result.stack;
-      const data = yield* stacks.load();
-      const mergedSet = new Set(data.mergedBranches);
-
-      // Compute the effective base for a branch at index i, skipping merged branches
-      const effectiveBase = (i: number): string => {
-        for (let j = i - 1; j >= 0; j--) {
-          const candidate = branches[j];
-          if (candidate !== undefined && !mergedSet.has(candidate)) return candidate;
-        }
-        return trunk;
-      };
+      const branches = lineage.branches.map((entry) => entry.name);
 
       const rawTitle = Option.isSome(titleOpt) ? titleOpt.value : undefined;
       const rawBody = Option.isSome(bodyOpt) ? bodyOpt.value : undefined;
@@ -168,9 +164,9 @@ export const submit = Command.make("submit", {
       >();
 
       // Pre-fetch all PR statuses in parallel (skip merged branches entirely)
-      const activeBranches = (
-        only ? branches.filter((b) => b === currentBranch) : [...branches]
-      ).filter((b) => !mergedSet.has(b));
+      const activeBranches = lineage.branches
+        .filter((entry) => (!only || entry.name === currentBranch) && !entry.merged)
+        .map((entry) => entry.name);
       const prResults = yield* Effect.forEach(
         activeBranches,
         (branch) =>
@@ -185,10 +181,11 @@ export const submit = Command.make("submit", {
       }
 
       for (let i = 0; i < branches.length; i++) {
-        const branch = branches[i];
-        if (branch === undefined) continue;
-        if (mergedSet.has(branch)) continue;
-        const base = effectiveBase(i);
+        const entry = lineage.branches[i];
+        if (entry === undefined) continue;
+        if (entry.merged) continue;
+        const branch = entry.name;
+        const base = entry.activeParent;
 
         // --only: skip branches that aren't current
         if (only && branch !== currentBranch) continue;
@@ -243,7 +240,7 @@ export const submit = Command.make("submit", {
           const userTitle = getTitleForBranch(branch, i);
           const title =
             userTitle ?? branch.replace(/[-_]/g, " ").replace(/^\w/, (c) => c.toUpperCase());
-          const metadata = generateStackMetadata(branches, prMap, i, result.name);
+          const metadata = generateStackMetadata(branches, prMap, i, lineage.name);
           const userBody = getBodyForBranch(branch, i);
           const body = composePRBody(userBody, metadata);
 
@@ -278,7 +275,7 @@ export const submit = Command.make("submit", {
       // This includes newly created PRs so placeholders get replaced in one submit run.
       yield* refreshStackedPRBodies({
         branches,
-        stackName: result.name,
+        stackName: lineage.name,
         gh,
         initialPrMap: prMap,
         shouldUpdateBranch: (branch) =>

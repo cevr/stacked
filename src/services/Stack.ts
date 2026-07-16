@@ -50,6 +50,19 @@ export interface Stack {
   readonly branches: readonly string[];
 }
 
+export interface LineageBranch {
+  readonly name: string;
+  readonly parent: string;
+  readonly activeParent: string;
+  readonly merged: boolean;
+}
+
+export interface StackLineage {
+  readonly name: string;
+  readonly trunk: string;
+  readonly branches: readonly LineageBranch[];
+}
+
 interface CanonicalStackFile {
   readonly version: 2;
   readonly trunk: string;
@@ -278,6 +291,32 @@ const rewriteStackBranches = (
   };
 };
 
+const projectLineage = (
+  data: CanonicalStackFile,
+  name: string,
+  stack: Stack,
+  includeMerged: boolean,
+): StackLineage => {
+  const merged = new Set(data.mergedBranches);
+  const branches: LineageBranch[] = [];
+  let activeParent = data.trunk;
+
+  for (let index = 0; index < stack.branches.length; index++) {
+    const branch = stack.branches[index];
+    if (branch === undefined) continue;
+    const isMerged = merged.has(branch);
+    branches.push({
+      name: branch,
+      parent: index === 0 ? data.trunk : (stack.branches[index - 1] ?? data.trunk),
+      activeParent,
+      merged: isMerged,
+    });
+    if (includeMerged || !isMerged) activeParent = branch;
+  }
+
+  return { name, trunk: data.trunk, branches };
+};
+
 const renameStackRefs = (
   data: CanonicalStackFile,
   oldName: string,
@@ -324,6 +363,26 @@ const makeStackService = ({
 }: StackServiceFactoryOptions): Context.Service.Shape<typeof StackService> => {
   const snapshot = () => loadData().pipe(Effect.flatMap(projectStacks));
 
+  const getLineage = Effect.fn("StackService.getLineage")(function* (
+    branch: string,
+    options?: {
+      readonly includeMerged?: boolean;
+    },
+  ) {
+    const data = yield* loadData();
+    const state = yield* projectStacks(data);
+    const resolved = state.branchToStack.get(branch);
+    if (resolved === undefined) return null;
+    return projectLineage(data, resolved.name, resolved.stack, options?.includeMerged ?? false);
+  });
+
+  const currentLineage = Effect.fn("StackService.currentLineage")(function* (options?: {
+    readonly includeMerged?: boolean;
+  }) {
+    const branch = yield* currentBranch();
+    return yield* getLineage(branch, options);
+  });
+
   return {
     load: () => loadData(),
     save: (data) => saveData(normalizeStackFile(data)),
@@ -349,6 +408,9 @@ const makeStackService = ({
       const state = yield* snapshot();
       return state.branchToStack.get(branch) ?? null;
     }),
+
+    currentLineage,
+    getLineage,
 
     addBranch: Effect.fn("StackService.addBranch")(function* (
       stackName: string,
@@ -654,6 +716,13 @@ export class StackService extends Context.Service<
       { name: string; stack: Stack } | null,
       StackError | GitError
     >;
+    readonly currentLineage: (options?: {
+      readonly includeMerged?: boolean;
+    }) => Effect.Effect<StackLineage | null, StackError | GitError>;
+    readonly getLineage: (
+      branch: string,
+      options?: { readonly includeMerged?: boolean },
+    ) => Effect.Effect<StackLineage | null, StackError>;
     readonly addBranch: (
       stackName: string,
       branch: string,

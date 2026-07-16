@@ -17,8 +17,8 @@ export const log = Command.make("log", { json: jsonFlag }).pipe(
       const git = yield* GitService;
       const stacks = yield* StackService;
 
-      const result = yield* stacks.currentStack();
-      if (result === null) {
+      const lineage = yield* stacks.currentLineage();
+      if (lineage === null) {
         return yield* new StackError({
           code: ErrorCode.NOT_IN_STACK,
           message:
@@ -26,42 +26,23 @@ export const log = Command.make("log", { json: jsonFlag }).pipe(
         });
       }
 
-      const trunk = yield* stacks.getTrunk();
-      const { branches } = result.stack;
-      const data = yield* stacks.load();
-      const mergedSet = new Set(data.mergedBranches);
-
-      const effectiveBase = (i: number): string => {
-        for (let j = i - 1; j >= 0; j--) {
-          const candidate = branches[j];
-          if (candidate !== undefined && !mergedSet.has(candidate)) return candidate;
-        }
-        return trunk;
-      };
-
       if (json) {
         const entries = [];
-        for (let i = 0; i < branches.length; i++) {
-          const branch = branches[i];
-          if (branch === undefined) continue;
-          const base = effectiveBase(i);
+        for (const branch of lineage.branches) {
           const commits = yield* git
-            .log(`${base}..${branch}`, { oneline: true })
+            .log(`${branch.activeParent}..${branch.name}`, { oneline: true })
             .pipe(Effect.catchTag("GitError", () => Effect.succeed("")));
-          entries.push({ name: branch, base, commits: commits || "" });
+          entries.push({ name: branch.name, base: branch.activeParent, commits: commits || "" });
         }
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off
         yield* Console.log(JSON.stringify({ branches: entries }, null, 2));
         return;
       }
 
-      for (let i = 0; i < branches.length; i++) {
-        const branch = branches[i];
-        if (branch === undefined) continue;
-        const base = effectiveBase(i);
-        yield* Console.log(`\n── ${branch} ──`);
+      for (const branch of lineage.branches) {
+        yield* Console.log(`\n── ${branch.name} ──`);
         const rangeLog = yield* git
-          .log(`${base}..${branch}`, { oneline: true })
+          .log(`${branch.activeParent}..${branch.name}`, { oneline: true })
           .pipe(Effect.catchTag("GitError", () => Effect.succeed("(no commits)")));
         yield* Console.log(rangeLog || "(no new commits)");
       }
