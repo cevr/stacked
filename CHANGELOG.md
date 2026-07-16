@@ -1,5 +1,13 @@
 # @cvr/stacked
 
+## 0.10.0
+
+### Minor Changes
+
+- [`a6951f6`](https://github.com/cevr/stacked/commit/a6951f6d592f8d88a9e4ee9769c34346201f8975) Thanks [@cevr](https://github.com/cevr)! - Share stack topology across clones and linked worktrees using normalized repository identities while keeping synchronization markers clone-local.
+
+  Add first-class subtree reparenting, including cross-stack moves, parent-sensitive sync-marker invalidation, dry-run and JSON output, and an opt-in `reparent --sync` workflow that immediately merges and pushes the destination lineage.
+
 ## 0.9.0
 
 ### Minor Changes
@@ -15,6 +23,7 @@
 ### Minor Changes
 
 - [`5d2b524`](https://github.com/cevr/stacked/commit/5d2b5245dd61f14dd18148dd109bbe45f1276cce) Thanks [@cevr](https://github.com/cevr)! - Replace rebase-based sync with a pure merge model.
+
   - `sync` now fast-forwards trunk onto `origin/<trunk>` and merges each parent into its child (`git merge --no-ff`). No rebases anywhere in the stack.
   - `submit` plain-pushes (no force). Sync never rewrites history, so pushes always fast-forward. `--no-force` flag removed.
   - Conflict flow simplified: resolve in place, then `stacked sync --continue` commits the merge; `stacked sync --abort` aborts the merge cleanly.
@@ -43,12 +52,14 @@
   **Problem:** When `treeMergeSync` detected conflicts, sync fell back to `git rebase --onto` which replays each commit individually. The same conflict hit on every commit, causing duplicate imports, leftover conflict markers, and compounding resolution errors.
 
   **Solution:** On conflict, a single 3-way merge commit replaces the multi-commit rebase replay:
+
   - `prepareConflictMerge` writes conflict markers to the worktree via `checkoutIndex`
   - User/agent resolves conflicts once, then `stacked sync --continue` creates a merge commit with `parents: [branchHead, newBaseTip]`
   - `stacked sync --abort` discards conflict state and restores the original branch
   - Resume state persisted to `.git/stacked-sync-state.json` (atomic write, exclusive lock)
 
   **Other changes:**
+
   - Fixed `mergeTrees` argument order: `(ancestor, branch, newBase)` — corrects ours/theirs conflict marker labels
   - Fixed default git backend: `resolveGitBackend(undefined)` now correctly returns `"es-git"` instead of `"cli"`
   - Renamed `REBASE_CONFLICT` error code to `SYNC_CONFLICT`
@@ -63,6 +74,7 @@
 - [`a52bb03`](https://github.com/cevr/stacked/commit/a52bb0370b611f5caac4bcc9859f7834204727bb) Thanks [@cevr](https://github.com/cevr)! - Incremental sync via fork-point tracking and tree-merge fast path
 
   **New behavior:**
+
   - `sync` now records `syncedOnto` (the parent branch tip SHA) in stack metadata after each sync
   - Branches whose parent hasn't moved since last sync are skipped entirely (no rebase, no push)
   - es-git backend uses `mergeTrees` for conflict-free syncs — creates a merge commit instead of replaying, avoiding duplicate code and leftover conflict markers
@@ -75,6 +87,7 @@
   `merge-base(branch, newBase)` returned wrong results after parent rewrites, causing duplicate code and phantom conflicts during rebase. The new `syncedOnto` metadata provides an exact fork-point instead of a guess.
 
   **New `GitService` method:**
+
   - `treeMergeSync` — computes result tree via 3-way merge, creates merge commit with 2 parents, no replay
 
 ## 0.5.0
@@ -84,6 +97,7 @@
 - [`dd5892c`](https://github.com/cevr/stacked/commit/dd5892cf861d0024b0a2ea559f53fa5eaf416e6c) Thanks [@cevr](https://github.com/cevr)! - Comprehensive audit fixes across es-git backend, CLI contract, and performance
 
   **Bug fixes:**
+
   - es-git `push` now uses `--force-with-lease` instead of bare `+` force prefix
   - es-git `deleteBranch` respects `force` param (shells out to `git branch -d` for safe deletes)
   - `commitAmend --edit` works on both backends (spawns with inherited stdio for interactive editor)
@@ -93,12 +107,14 @@
   - Regex injection fix in `remoteDefaultBranch` (replaced `new RegExp` with `startsWith`/`slice`)
 
   **Performance:**
+
   - `submit` pre-fetches all PR statuses in parallel (`concurrency: 5`)
   - `refreshStackedPRBodies` fetches and updates PRs in parallel
   - `doctor` calls `listBranches` once instead of N sequential `branchExists` calls
   - `stackFilePath` resolved once at layer construction (memoized)
 
   **CLI contract:**
+
   - `clean` JSON output includes `failed` deletions
   - Errors in `--json` mode produce structured `{"error":{...}}` on stdout
   - `init` supports `--json` flag
@@ -107,6 +123,7 @@
   - Informational messages respect `--quiet` flag
 
   **Cleanup:**
+
   - Removed dead `if (root === undefined)` guard in `rewriteStackBranches`
   - New tests: adopt command, sync rebase failure recovery, v1→v2 migration
 
@@ -137,6 +154,7 @@
 - [`58ed4ff`](https://github.com/cevr/stacked/commit/58ed4ff7e304cebf2d4a12780e2f2dcb3725b13b) Thanks [@cevr](https://github.com/cevr)! - `stacked sync` now force-pushes each branch after a successful rebase (using `--force-with-lease`) so rebased branch tips are immediately reflected on remote and stacked PRs stay in sync without a separate submit/push step.
 
 - [`02c916b`](https://github.com/cevr/stacked/commit/02c916b9dc3bb09d9c3f3de8c61dad660a602469) Thanks [@cevr](https://github.com/cevr)! - Fix critical CLI and stacked workflow correctness issues.
+
   - Stop command execution when conflicting global flags are passed (`--verbose` with `--quiet`) and exit with code `2`.
   - Ensure `submit` refreshes stack metadata for PRs created in the same run, so links are complete without a second submit.
   - Add machine-readable output for `submit --dry-run --json` with `would-*` actions.
@@ -158,11 +176,13 @@
 - [`0dd68ee`](https://github.com/cevr/stacked/commit/0dd68ee29d0bda42698b212ce9c6c06aacdf2473) Thanks [@cevr](https://github.com/cevr)! - Comprehensive audit — security, soundness, UX, and new features
 
   **Security:**
+
   - Prevent git flag injection via branch names (`--` separator in git commands)
   - Branch name validation (reject `-`-prefixed, `..`, spaces, `.lock`, ending `.`, ending `/`, single `@`, empty, invalid chars)
   - Wrap `Bun.spawn` in `Effect.sync` for referential transparency
 
   **Bug fixes:**
+
   - Spinner shows failure icon on error, warning on interrupt (was always green)
   - ANSI codes no longer leak to stdout when piped (separate stdout/stderr color detection)
   - `submit` preserves existing PR body on re-submit (was wiping `body` field)
@@ -178,6 +198,7 @@
   - Navigation commands respect `--quiet` flag
 
   **New features:**
+
   - `stacked amend` — amend commit + auto-rebase children (`--edit`, `--from`, `--json`)
   - `stacked doctor` — check metadata health, auto-fix stale branches (`--fix`, `--json`)
   - `stacked rename` — rename stacks (`--json`)
@@ -199,6 +220,7 @@
   - Root command examples in `stacked --help`
 
   **Refactoring:**
+
   - `Effect.fn` wrapping for all ui functions (trace spans)
   - Removed dead code and deduplicated stack lookups
   - Error handling uses `Effect.catchTags` instead of manual `_tag` inspection
