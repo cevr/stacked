@@ -262,10 +262,13 @@ const rewriteStackBranches = (
     const branch = branches[i];
     if (branch === undefined) continue;
     const existing = data.branches[branch];
+    const parent = i === 0 ? null : (branches[i - 1] ?? null);
     nextBranches[branch] = {
       stack: stackName,
-      parent: i === 0 ? null : (branches[i - 1] ?? null),
-      ...(existing?.syncedOnto != null ? { syncedOnto: existing.syncedOnto } : {}),
+      parent,
+      ...(existing?.parent === parent && existing.syncedOnto != null
+        ? { syncedOnto: existing.syncedOnto }
+        : {}),
     };
   }
 

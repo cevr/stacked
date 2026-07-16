@@ -300,4 +300,29 @@ describe("StackService", () => {
       ),
     ),
   );
+
+  it.effect("invalidates sync markers only where a lineage rewrite changes the parent", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      yield* stacks.reorderBranch("feat-b", { after: "feat-c" });
+
+      const data = yield* stacks.load();
+      expect(data.branches["feat-a"]?.syncedOnto).toBe("oid-main");
+      expect(data.branches["feat-c"]?.syncedOnto).toBeUndefined();
+      expect(data.branches["feat-b"]?.syncedOnto).toBeUndefined();
+    }).pipe(
+      Effect.provide(
+        StackService.layerTest({
+          version: 2,
+          trunk: "main",
+          stacks: { "feat-a": { root: "feat-a" } },
+          branches: {
+            "feat-a": { stack: "feat-a", parent: null, syncedOnto: "oid-main" },
+            "feat-b": { stack: "feat-a", parent: "feat-a", syncedOnto: "oid-feat-a" },
+            "feat-c": { stack: "feat-a", parent: "feat-b", syncedOnto: "oid-feat-b" },
+          },
+        }),
+      ),
+    ),
+  );
 });
