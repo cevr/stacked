@@ -40,6 +40,16 @@ describe("StackService", () => {
     }).pipe(Effect.provide(StackService.layerTest(initialData))),
   );
 
+  it.effect("createStack rejects duplicate branch inputs", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const error = yield* stacks.createStack("duplicate", ["same", "same"]).pipe(Effect.flip);
+
+      expect(error.message).toContain('Branch "same" appears more than once');
+      expect(yield* stacks.getStack("duplicate")).toBeNull();
+    }).pipe(Effect.provide(StackService.layerTest(initialData))),
+  );
+
   it.effect("addBranch appends to stack", () =>
     Effect.gen(function* () {
       const stacks = yield* StackService;

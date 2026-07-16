@@ -505,6 +505,13 @@ const makeStackService = ({
         });
       }
 
+      const duplicate = branches.find((branch, index) => branches.indexOf(branch) !== index);
+      if (duplicate !== undefined) {
+        return yield* new StackError({
+          message: `Branch "${duplicate}" appears more than once in stack "${name}"`,
+        });
+      }
+
       const data = yield* loadData();
       if (data.stacks[name] !== undefined) {
         return yield* new StackError({ message: `Stack "${name}" already exists` });

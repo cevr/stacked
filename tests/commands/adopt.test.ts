@@ -151,6 +151,30 @@ describe("adopt command", () => {
     ),
   );
 
+  it.effect("creates a singleton stack when adopting the current untracked branch", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const run = Command.runWith(adopt, { version: "test" });
+
+      yield* run(["untracked"]);
+
+      const stack = yield* stacks.getStack("untracked");
+      expect(stack?.branches).toEqual(["untracked"]);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: {
+              currentBranch: "untracked",
+              branches: { untracked: true },
+            },
+          }),
+          BunServices.layer,
+        ),
+      ),
+    ),
+  );
+
   it.effect("no-ops when branch is already in the same stack", () =>
     Effect.gen(function* () {
       const recorder = yield* CallRecorder;

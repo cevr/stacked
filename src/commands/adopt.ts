@@ -79,6 +79,8 @@ export const adopt = Command.make("adopt", {
         const currentBranch = yield* git.currentBranch();
         if (currentBranch === trunk) {
           yield* stacks.createStack(branch, [branch]);
+        } else if (currentBranch === branch) {
+          yield* stacks.createStack(branch, [branch]);
         } else {
           yield* stacks.createStack(currentBranch, [currentBranch, branch]);
         }
