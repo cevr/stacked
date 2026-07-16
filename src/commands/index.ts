@@ -22,6 +22,7 @@ import { rename } from "./rename.js";
 import { reorder } from "./reorder.js";
 import { split } from "./split.js";
 import { amend } from "./amend.js";
+import { reparent } from "./reparent.js";
 
 const root = Command.make("stacked").pipe(
   Command.withDescription(
@@ -60,5 +61,6 @@ export const command = root.pipe(
     reorder,
     split,
     amend,
+    reparent,
   ]),
 );

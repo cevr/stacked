@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, Option, Ref, Schema } from "effect";
 import type { Crypto, FileSystem, Path } from "effect";
 import type { GitError } from "../errors/index.js";
-import { StackError } from "../errors/index.js";
+import { ErrorCode, StackError } from "../errors/index.js";
 import { GitService } from "./Git.js";
 import { RepositoryStore } from "./RepositoryStore.js";
 
@@ -100,6 +100,16 @@ interface StackSnapshot {
 interface SplitResult {
   readonly original: { readonly name: string; readonly branches: readonly string[] };
   readonly created: { readonly name: string; readonly branches: readonly string[] };
+}
+
+export interface ReparentResult {
+  readonly branch: string;
+  readonly onto: string;
+  readonly moved: readonly string[];
+  readonly source: { readonly name: string; readonly branches: readonly string[] } | null;
+  readonly destination: { readonly name: string; readonly branches: readonly string[] };
+  readonly invalidatedSyncMarkers: readonly string[];
+  readonly changed: boolean;
 }
 
 const emptyStackFile: CanonicalStackFile = {
@@ -295,6 +305,7 @@ const rewriteStackBranches = (
   data: CanonicalStackFile,
   stackName: string,
   branches: readonly string[],
+  previous: CanonicalStackFile = data,
 ): CanonicalStackFile => {
   const nextBranches: Record<
     string,
@@ -312,7 +323,7 @@ const rewriteStackBranches = (
   for (let i = 0; i < branches.length; i++) {
     const branch = branches[i];
     if (branch === undefined) continue;
-    const existing = data.branches[branch];
+    const existing = previous.branches[branch];
     const parent = i === 0 ? null : (branches[i - 1] ?? null);
     nextBranches[branch] = {
       stack: stackName,
@@ -653,6 +664,123 @@ const makeStackService = ({
       } satisfies SplitResult;
     }),
 
+    reparentBranch: Effect.fn("StackService.reparentBranch")(function* (
+      branch: string,
+      onto: string,
+      options?: { readonly dryRun?: boolean },
+    ) {
+      const data = yield* loadData();
+      const state = yield* projectStacks(data);
+      const source = state.branchToStack.get(branch);
+      if (source === undefined) {
+        return yield* new StackError({
+          code: ErrorCode.BRANCH_NOT_FOUND,
+          message: `Branch "${branch}" not found in any stack`,
+        });
+      }
+
+      const sourceBranches = [...source.stack.branches];
+      const sourceIndex = sourceBranches.indexOf(branch);
+      const moved = sourceBranches.slice(sourceIndex);
+      const sourceRemaining = sourceBranches.slice(0, sourceIndex);
+      const currentParent = data.branches[branch]?.parent ?? data.trunk;
+
+      if (onto === branch || moved.includes(onto)) {
+        return yield* new StackError({
+          code: ErrorCode.USAGE_ERROR,
+          message: `Cannot reparent "${branch}" onto itself or one of its descendants`,
+        });
+      }
+
+      if (onto === currentParent) {
+        return {
+          branch,
+          onto,
+          moved,
+          source: { name: source.name, branches: sourceBranches },
+          destination: { name: source.name, branches: sourceBranches },
+          invalidatedSyncMarkers: [],
+          changed: false,
+        } satisfies ReparentResult;
+      }
+
+      let next: CanonicalStackFile;
+      let destinationName: string;
+      let destinationBranches: readonly string[];
+
+      if (onto === data.trunk) {
+        if (
+          data.stacks[branch] !== undefined &&
+          (source.name !== branch || sourceRemaining.length > 0)
+        ) {
+          return yield* new StackError({
+            code: ErrorCode.STACK_EXISTS,
+            message: `Cannot create stack "${branch}" because that stack name already exists`,
+          });
+        }
+
+        next = rewriteStackBranches(data, source.name, sourceRemaining, data);
+        next = rewriteStackBranches(
+          {
+            ...next,
+            stacks: { ...next.stacks, [branch]: { root: branch } },
+          },
+          branch,
+          moved,
+          data,
+        );
+        destinationName = branch;
+        destinationBranches = moved;
+      } else {
+        const destination = state.branchToStack.get(onto);
+        if (destination === undefined) {
+          return yield* new StackError({
+            code: ErrorCode.BRANCH_NOT_FOUND,
+            message: `Parent branch "${onto}" is neither trunk nor part of a stack`,
+          });
+        }
+
+        if (destination.name === source.name) {
+          const targetIndex = sourceRemaining.indexOf(onto);
+          const reordered = [...sourceRemaining];
+          reordered.splice(targetIndex + 1, 0, ...moved);
+          next = rewriteStackBranches(data, source.name, reordered, data);
+          destinationName = source.name;
+          destinationBranches = reordered;
+        } else {
+          const targetIndex = destination.stack.branches.indexOf(onto);
+          const inserted = [...destination.stack.branches];
+          inserted.splice(targetIndex + 1, 0, ...moved);
+          next = rewriteStackBranches(data, source.name, sourceRemaining, data);
+          next = rewriteStackBranches(next, destination.name, inserted, data);
+          destinationName = destination.name;
+          destinationBranches = inserted;
+        }
+      }
+
+      const invalidatedSyncMarkers = Object.entries(next.branches).flatMap(([name, record]) => {
+        const previous = data.branches[name];
+        return previous?.parent !== record.parent && previous?.syncedOnto != null ? [name] : [];
+      });
+
+      if (options?.dryRun !== true) yield* saveData(next);
+
+      const finalSourceBranches =
+        source.name === destinationName ? destinationBranches : sourceRemaining;
+      return {
+        branch,
+        onto,
+        moved,
+        source:
+          finalSourceBranches.length === 0
+            ? null
+            : { name: source.name, branches: finalSourceBranches },
+        destination: { name: destinationName, branches: destinationBranches },
+        invalidatedSyncMarkers,
+        changed: true,
+      } satisfies ReparentResult;
+    }),
+
     reorderBranch: Effect.fn("StackService.reorderBranch")(function* (
       branch: string,
       position: { before?: string; after?: string },
@@ -793,6 +921,11 @@ export class StackService extends Context.Service<
     readonly createStack: (name: string, branches: string[]) => Effect.Effect<void, StackError>;
     readonly renameStack: (oldName: string, newName: string) => Effect.Effect<void, StackError>;
     readonly splitStack: (branch: string) => Effect.Effect<SplitResult, StackError>;
+    readonly reparentBranch: (
+      branch: string,
+      onto: string,
+      options?: { readonly dryRun?: boolean },
+    ) => Effect.Effect<ReparentResult, StackError>;
     readonly reorderBranch: (
       branch: string,
       position: { before?: string; after?: string },

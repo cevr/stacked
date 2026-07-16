@@ -74,6 +74,10 @@ stacked submit --dry-run
 # Adopt an existing branch into the stack
 stacked adopt existing-branch --after feat-auth
 
+# Move a branch and everything above it onto a new parent
+stacked reparent feat-auth-ui --onto feat-api
+stacked reparent feat-auth-ui --onto main --dry-run
+
 # View commits per branch
 stacked log
 stacked log --json
@@ -101,26 +105,27 @@ stacked --yes clean      # skip confirmation prompts
 
 ## Commands
 
-| Command           | Description                                                                                       |
-| ----------------- | ------------------------------------------------------------------------------------------------- |
-| `trunk [name]`    | Get/set trunk branch (`--json`)                                                                   |
-| `create <name>`   | Create branch on top of current (`--from`, `--json`)                                              |
-| `list [stack]`    | Show stack branches (`--json`)                                                                    |
-| `stacks`          | List all stacks (`--json`)                                                                        |
-| `status`          | Show current branch, stack position, working tree state, per-branch push state (`--json`)         |
-| `checkout <name>` | Switch to branch (falls through to git for non-stacked branches)                                  |
-| `up`              | Move up one branch in the stack                                                                   |
-| `down`            | Move down one branch in the stack                                                                 |
-| `top`             | Jump to top of stack                                                                              |
-| `bottom`          | Jump to bottom of stack                                                                           |
-| `sync`            | Fetch + merge parent into each child (`--from`, `--include-merged`, `--continue`, `--abort`)      |
-| `detect`          | Detect branch chains and register as stacks (`--dry-run`, `--json`)                               |
-| `clean`           | Remove merged branches + remote branches (`--dry-run`, `--json`)                                  |
-| `delete <name>`   | Remove branch from stack + git + remote (`--keep-remote`, `--force`, `--json`)                    |
-| `submit`          | Sync + push + create/update PRs (`--no-sync`, `--title`, `--body`, `--only`, `--draft`, `--json`) |
-| `adopt <branch>`  | Add existing branch to stack (`--after`, `--json`)                                                |
-| `log`             | Show commits grouped by branch (`--json`)                                                         |
-| `init`            | Install the stacked Claude skill to ~/.claude/skills                                              |
+| Command             | Description                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------- |
+| `trunk [name]`      | Get/set trunk branch (`--json`)                                                                   |
+| `create <name>`     | Create branch on top of current (`--from`, `--json`)                                              |
+| `list [stack]`      | Show stack branches (`--json`)                                                                    |
+| `stacks`            | List all stacks (`--json`)                                                                        |
+| `status`            | Show current branch, stack position, working tree state, per-branch push state (`--json`)         |
+| `checkout <name>`   | Switch to branch (falls through to git for non-stacked branches)                                  |
+| `up`                | Move up one branch in the stack                                                                   |
+| `down`              | Move down one branch in the stack                                                                 |
+| `top`               | Jump to top of stack                                                                              |
+| `bottom`            | Jump to bottom of stack                                                                           |
+| `sync`              | Fetch + merge parent into each child (`--from`, `--include-merged`, `--continue`, `--abort`)      |
+| `detect`            | Detect branch chains and register as stacks (`--dry-run`, `--json`)                               |
+| `clean`             | Remove merged branches + remote branches (`--dry-run`, `--json`)                                  |
+| `delete <name>`     | Remove branch from stack + git + remote (`--keep-remote`, `--force`, `--json`)                    |
+| `submit`            | Sync + push + create/update PRs (`--no-sync`, `--title`, `--body`, `--only`, `--draft`, `--json`) |
+| `adopt <branch>`    | Add existing branch to stack (`--after`, `--json`)                                                |
+| `reparent <branch>` | Move a branch subtree onto another branch or trunk (`--onto`, `--dry-run`, `--json`)              |
+| `log`               | Show commits grouped by branch (`--json`)                                                         |
+| `init`              | Install the stacked Claude skill to ~/.claude/skills                                              |
 
 ### Global Flags
 
@@ -149,6 +154,8 @@ Repository-wide stack topology lives under `$XDG_STATE_HOME/stacked` (normally `
 Clone-local synchronization markers are stored separately because clones can have different branch tips. Repositories without an `origin` fall back to their common Git directory and do not share metadata across clones. Existing `.git/stacked.json` files are migrated automatically after validation; conflicting legacy files stop with an error instead of silently choosing one.
 
 Active stacks are stored as explicit linear parent links plus a per-stack root. `mergedBranches` is a skip-list of branches whose PRs have merged — they remain in metadata for bookkeeping but are skipped by `sync`/`submit`/`detect`.
+
+`reparent` moves the selected Branch and every descendant above it as one subtree. Cross-Stack moves remove an emptied source Stack; targeting Trunk creates a new Stack. Because Stacks remain linear, inserting after a Branch places that Branch's former descendants above the moved subtree. Only checkout-local `syncedOnto` markers whose Parent changed are invalidated; run `stacked sync` afterward to merge the new parent chain without rewriting history.
 
 Trunk is auto-detected on first use from `origin/HEAD` when available, then falls back to local `main`, `master`, or `develop`. Override with `stacked trunk <name>`.
 

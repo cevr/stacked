@@ -17,6 +17,7 @@
 | --------------------------------- | -------------------------------------------------------------- |
 | `src/commands/sync.ts`            | Stack merge orchestration + push behavior + conflict messaging |
 | `src/commands/submit.ts`          | PR creation/update, base retarget, stacked metadata block      |
+| `src/commands/reparent.ts`        | Subtree-move CLI, dry-run, and machine-readable output         |
 | `src/services/Git.ts`             | Single choke point for git process behavior/options            |
 | `src/services/RepositoryStore.ts` | Shared topology and clone-state persistence boundary           |
 | `tests/helpers/test-cli.ts`       | Mock service layer + call recorder used by command tests       |
@@ -36,3 +37,4 @@
 - `detect` treats metadata as source of truth for managed branches and only infers parentage for untracked branches.
 - `amend` reuses the merge loop to propagate amended parents into children.
 - `create` and `adopt` record initial `syncedOnto` for accurate first sync.
+- `reparent` is one atomic StackService mutation: it moves a Branch plus its descendant suffix within/across Stacks or onto Trunk, rejects cycles, deletes emptied source Stacks, and invalidates only checkout sync markers whose Parent changed.

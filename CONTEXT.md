@@ -34,3 +34,7 @@ _Avoid_: Checkout, working directory
 **Checkout**:
 A clone's common Git directory and its local synchronization state. Linked worktrees share one Checkout.
 _Avoid_: Repository, Stack
+
+**Reparent**:
+Move a Branch and every descendant above it so the Branch has a new Parent. The Lineage remains linear; Git history changes only when `sync` merges the new Parent chain.
+_Avoid_: Rebase, restack
