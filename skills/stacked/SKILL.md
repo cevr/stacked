@@ -56,7 +56,7 @@ What do you need?
 | `stacked doctor`             | Check stack metadata for issues (`--fix`, `--json`)                                                        |
 | `stacked rename <old> <new>` | Rename a stack (`--json`)                                                                                  |
 | `stacked reorder <branch>`   | Move a branch within the stack (`--before`, `--after`, `--json`)                                           |
-| `stacked reparent <branch>`  | Move a branch subtree onto a branch or trunk (`--onto`, `--dry-run`, `--json`)                             |
+| `stacked reparent <branch>`  | Move a branch subtree onto a branch or trunk (`--onto`, `--sync`, `--dry-run`, `--json`)                   |
 | `stacked split <branch>`     | Split stack at a branch point (`--dry-run`, `--json`)                                                      |
 | `stacked init`               | Install the stacked Claude skill to ~/.claude/skills                                                       |
 
@@ -294,15 +294,16 @@ stacked reorder feat-b --after feat-c
 # Move feat-b and every descendant above it onto a new Parent
 stacked reparent feat-b --onto feat-x
 stacked reparent feat-b --onto main --dry-run
+stacked reparent feat-b --onto feat-x --sync
 
 # Split a stack at a branch point (branches at/above become a new stack)
 stacked split feat-b
 stacked split feat-b --dry-run    # preview the split
 ```
 
-`reparent` moves the selected Branch and its descendant suffix as one unit. It supports same-Stack and cross-Stack moves; targeting Trunk creates a new Stack. Since Stacks are linear, the target's former descendants follow the moved subtree. Cycles are rejected, emptied source Stacks are removed, and only `syncedOnto` markers whose Parent changed are cleared.
+`reparent` moves the selected Branch and its descendant suffix as one unit. It supports same-Stack and cross-Stack moves; targeting Trunk creates a new Stack. Since Stacks are linear, the target's former descendants follow the moved subtree. Cycles are rejected, emptied source Stacks are removed, and only `syncedOnto` markers whose Parent changed are cleared. `--sync` checks that synchronization can start before changing topology, then merges and pushes the destination Lineage even when the checkout is still on the source Stack. It cannot be combined with `--dry-run`.
 
-After reordering or reparenting, run `stacked sync` to merge the new parents into children.
+After reordering or reparenting, run `stacked sync` to merge the new parents into children, or use `reparent --sync` to do both operations together.
 
 ## Doctor
 

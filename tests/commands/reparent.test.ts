@@ -6,7 +6,7 @@ import { Effect, Layer } from "effect";
 import { Command } from "effect/unstable/cli";
 import { reparent } from "../../src/commands/reparent.js";
 import { StackService, type StackFile } from "../../src/services/Stack.js";
-import { createTestLayer } from "../helpers/test-cli.js";
+import { CallRecorder, createTestLayer, expectCall, expectNoCall } from "../helpers/test-cli.js";
 
 const stackData: StackFile = {
   version: 2,
@@ -119,6 +119,114 @@ describe("reparent command", () => {
       expect((yield* stacks.getStack("beta"))?.branches).toEqual(["feat-x", "feat-y"]);
     }).pipe(
       Effect.provide(Layer.mergeAll(createTestLayer({ stack: stackData }), BunServices.layer)),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("--sync synchronizes the moved branch's destination lineage", async () => {
+    const program = Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(reparent, { version: "test" });
+
+      yield* run(["feat-b", "--onto", "feat-x", "--sync"]);
+
+      expect((yield* stacks.getStack("beta"))?.branches).toEqual([
+        "feat-x",
+        "feat-b",
+        "feat-c",
+        "feat-y",
+      ]);
+      const calls = yield* recorder.calls;
+      expectCall(calls, "Git", "fetch");
+      expectCall(calls, "Git", "mergeFastForward", { ref: "origin/main" });
+      const bases = calls
+        .filter((call) => call.service === "Git" && call.method === "mergeBranch")
+        .map((call) => (call.args as { base: string }).base);
+      expect(bases).toEqual(["origin/main", "feat-x", "feat-b", "feat-c"]);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-a", isAncestor: () => false },
+            stack: stackData,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("--sync checks checkout readiness before changing topology", async () => {
+    const program = Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(reparent, { version: "test" });
+
+      const error = yield* run(["feat-b", "--onto", "feat-x", "--sync"]).pipe(Effect.flip);
+
+      expect(error).toMatchObject({ _tag: "StackError", code: "DIRTY_WORKTREE" });
+      expect((yield* stacks.getStack("alpha"))?.branches).toEqual(["feat-a", "feat-b", "feat-c"]);
+      expect((yield* stacks.getStack("beta"))?.branches).toEqual(["feat-x", "feat-y"]);
+      expectNoCall(yield* recorder.calls, "Git", "fetch");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({
+            git: { currentBranch: "feat-a", isClean: false },
+            stack: stackData,
+          }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("--sync rejects dry-run before checking out or changing topology", async () => {
+    const program = Effect.gen(function* () {
+      const stacks = yield* StackService;
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(reparent, { version: "test" });
+
+      const error = yield* run(["feat-b", "--onto", "feat-x", "--sync", "--dry-run"]).pipe(
+        Effect.flip,
+      );
+
+      expect(error).toMatchObject({ _tag: "StackError", code: "USAGE_ERROR" });
+      expect((yield* stacks.getStack("alpha"))?.branches).toEqual(["feat-a", "feat-b", "feat-c"]);
+      expectNoCall(yield* recorder.calls, "Git", "revParse");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({ git: { currentBranch: "feat-a" }, stack: stackData }),
+          BunServices.layer,
+        ),
+      ),
+    );
+
+    await Effect.runPromise(program);
+  });
+
+  test("--sync still synchronizes when the requested parent is already current", async () => {
+    const program = Effect.gen(function* () {
+      const recorder = yield* CallRecorder;
+      const run = Command.runWith(reparent, { version: "test" });
+
+      yield* run(["feat-b", "--onto", "feat-a", "--sync"]);
+
+      expectCall(yield* recorder.calls, "Git", "fetch");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          createTestLayer({ git: { currentBranch: "feat-a" }, stack: stackData }),
+          BunServices.layer,
+        ),
+      ),
     );
 
     await Effect.runPromise(program);

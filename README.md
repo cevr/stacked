@@ -77,6 +77,7 @@ stacked adopt existing-branch --after feat-auth
 # Move a branch and everything above it onto a new parent
 stacked reparent feat-auth-ui --onto feat-api
 stacked reparent feat-auth-ui --onto main --dry-run
+stacked reparent feat-auth-ui --onto feat-api --sync
 
 # View commits per branch
 stacked log
@@ -123,7 +124,7 @@ stacked --yes clean      # skip confirmation prompts
 | `delete <name>`     | Remove branch from stack + git + remote (`--keep-remote`, `--force`, `--json`)                    |
 | `submit`            | Sync + push + create/update PRs (`--no-sync`, `--title`, `--body`, `--only`, `--draft`, `--json`) |
 | `adopt <branch>`    | Add existing branch to stack (`--after`, `--json`)                                                |
-| `reparent <branch>` | Move a branch subtree onto another branch or trunk (`--onto`, `--dry-run`, `--json`)              |
+| `reparent <branch>` | Move a branch subtree onto another branch or trunk (`--onto`, `--sync`, `--dry-run`, `--json`)    |
 | `log`               | Show commits grouped by branch (`--json`)                                                         |
 | `init`              | Install the stacked Claude skill to ~/.claude/skills                                              |
 
@@ -155,7 +156,7 @@ Clone-local synchronization markers are stored separately because clones can hav
 
 Active stacks are stored as explicit linear parent links plus a per-stack root. `mergedBranches` is a skip-list of branches whose PRs have merged — they remain in metadata for bookkeeping but are skipped by `sync`/`submit`/`detect`.
 
-`reparent` moves the selected Branch and every descendant above it as one subtree. Cross-Stack moves remove an emptied source Stack; targeting Trunk creates a new Stack. Because Stacks remain linear, inserting after a Branch places that Branch's former descendants above the moved subtree. Only checkout-local `syncedOnto` markers whose Parent changed are invalidated; run `stacked sync` afterward to merge the new parent chain without rewriting history.
+`reparent` moves the selected Branch and every descendant above it as one subtree. Cross-Stack moves remove an emptied source Stack; targeting Trunk creates a new Stack. Because Stacks remain linear, inserting after a Branch places that Branch's former descendants above the moved subtree. Only checkout-local `syncedOnto` markers whose Parent changed are invalidated. Use `--sync` to validate the checkout first, then immediately merge and push the moved Branch's destination Lineage without rewriting history. `--sync` and `--dry-run` are mutually exclusive.
 
 Trunk is auto-detected on first use from `origin/HEAD` when available, then falls back to local `main`, `master`, or `develop`. Override with `stacked trunk <name>`.
 

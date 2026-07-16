@@ -158,7 +158,35 @@ export interface RunSyncOptions {
   readonly continue: boolean;
   readonly abort: boolean;
   readonly includeMerged: boolean;
+  readonly targetBranch?: string;
 }
+
+const verifyNormalSyncReady = Effect.fn("sync.verifyNormalSyncReady")(function* (
+  gitDir: string,
+  dryRun: boolean,
+) {
+  const git = yield* GitService;
+  const existingState = yield* readSyncState(gitDir);
+  if (existingState !== null) {
+    return yield* new StackError({
+      code: ErrorCode.USAGE_ERROR,
+      message: `Sync recovery in progress on "${existingState.conflictedBranch}". Use --continue or --abort.`,
+    });
+  }
+
+  if (!dryRun && !(yield* git.isClean())) {
+    return yield* new StackError({
+      code: ErrorCode.DIRTY_WORKTREE,
+      message: "Working tree has uncommitted changes. Commit or stash before syncing.",
+    });
+  }
+});
+
+export const ensureSyncReady = Effect.fn("sync.ensureSyncReady")(function* () {
+  const git = yield* GitService;
+  const gitDir = yield* git.revParse("--absolute-git-dir");
+  yield* verifyNormalSyncReady(gitDir, false);
+});
 
 export const runSync = ({
   trunk: trunkOpt,
@@ -168,6 +196,7 @@ export const runSync = ({
   continue: continueMode,
   abort: abortMode,
   includeMerged,
+  targetBranch,
 }: RunSyncOptions) =>
   Effect.gen(function* () {
     const git = yield* GitService;
@@ -290,36 +319,26 @@ export const runSync = ({
     const originTrunk = `origin/${trunk}`;
     const currentBranch = yield* git.currentBranch();
 
-    const existingState = yield* readSyncState(gitDir);
-    if (existingState !== null) {
-      return yield* new StackError({
-        code: ErrorCode.USAGE_ERROR,
-        message: `Sync recovery in progress on "${existingState.conflictedBranch}". Use --continue or --abort.`,
-      });
-    }
+    yield* verifyNormalSyncReady(gitDir, dryRun);
 
-    if (!dryRun) {
-      const clean = yield* git.isClean();
-      if (!clean) {
-        return yield* new StackError({
-          code: ErrorCode.DIRTY_WORKTREE,
-          message: "Working tree has uncommitted changes. Commit or stash before syncing.",
-        });
-      }
-    }
-
-    const recordedLineage = yield* stacks.currentLineage({ includeMerged: true });
+    const recordedLineage = yield* targetBranch === undefined
+      ? stacks.currentLineage({ includeMerged: true })
+      : stacks.getLineage(targetBranch, { includeMerged: true });
     if (recordedLineage === null) {
       return yield* new StackError({
         code: ErrorCode.NOT_IN_STACK,
         message:
-          "Not on a stacked branch. Run 'stacked list' to see your stacks, or 'stacked create <name>' to start one.",
+          targetBranch === undefined
+            ? "Not on a stacked branch. Run 'stacked list' to see your stacks, or 'stacked create <name>' to start one."
+            : `Branch "${targetBranch}" not found in a stack after preparing sync.`,
       });
     }
 
     const branches = recordedLineage.branches.map(({ name }) => name);
     yield* detectMergedBranches({ branches, gh, stacks });
-    const lineage = yield* stacks.currentLineage({ includeMerged });
+    const lineage = yield* targetBranch === undefined
+      ? stacks.currentLineage({ includeMerged })
+      : stacks.getLineage(targetBranch, { includeMerged });
     if (lineage === null) {
       return yield* new StackError({
         code: ErrorCode.NOT_IN_STACK,

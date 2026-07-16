@@ -655,6 +655,7 @@ const makeStackService = ({
         },
         branch,
         created,
+        data,
       );
       yield* saveData(next);
 

@@ -17,7 +17,7 @@
 | --------------------------------- | -------------------------------------------------------------- |
 | `src/commands/sync.ts`            | Stack merge orchestration + push behavior + conflict messaging |
 | `src/commands/submit.ts`          | PR creation/update, base retarget, stacked metadata block      |
-| `src/commands/reparent.ts`        | Subtree-move CLI, dry-run, and machine-readable output         |
+| `src/commands/reparent.ts`        | Subtree move, sync preflight/composition, and output           |
 | `src/services/Git.ts`             | Single choke point for git process behavior/options            |
 | `src/services/RepositoryStore.ts` | Shared topology and clone-state persistence boundary           |
 | `tests/helpers/test-cli.ts`       | Mock service layer + call recorder used by command tests       |
@@ -38,3 +38,5 @@
 - `amend` reuses the merge loop to propagate amended parents into children.
 - `create` and `adopt` record initial `syncedOnto` for accurate first sync.
 - `reparent` is one atomic StackService mutation: it moves a Branch plus its descendant suffix within/across Stacks or onto Trunk, rejects cycles, deletes emptied source Stacks, and invalidates only checkout sync markers whose Parent changed.
+- `reparent --sync` preflights recovery/working-tree state before the topology write, then calls the shared sync entry point with the moved Branch as the target so cross-Stack moves synchronize the destination Lineage without changing the user's starting checkout.
+- Long mixed topology sequences are property-tested in `tests/services/Stack.property.test.ts`; every mutation checks the stack/branch bijection, linear parent chain, roots, and parent-sensitive sync-marker preservation.

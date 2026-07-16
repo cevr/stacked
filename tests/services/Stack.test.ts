@@ -494,4 +494,29 @@ describe("StackService", () => {
       ),
     ),
   );
+
+  it.effect("split invalidates only the new root sync marker", () =>
+    Effect.gen(function* () {
+      const stacks = yield* StackService;
+      yield* stacks.splitStack("feat-b");
+
+      const data = yield* stacks.load();
+      expect(data.branches["feat-a"]?.syncedOnto).toBe("oid-main");
+      expect(data.branches["feat-b"]?.syncedOnto).toBeUndefined();
+      expect(data.branches["feat-c"]?.syncedOnto).toBe("oid-feat-b");
+    }).pipe(
+      Effect.provide(
+        StackService.layerTest({
+          version: 2,
+          trunk: "main",
+          stacks: { "feat-a": { root: "feat-a" } },
+          branches: {
+            "feat-a": { stack: "feat-a", parent: null, syncedOnto: "oid-main" },
+            "feat-b": { stack: "feat-a", parent: "feat-a", syncedOnto: "oid-feat-a" },
+            "feat-c": { stack: "feat-a", parent: "feat-b", syncedOnto: "oid-feat-b" },
+          },
+        }),
+      ),
+    ),
+  );
 });
