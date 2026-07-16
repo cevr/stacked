@@ -1,9 +1,6 @@
 import { Command, Flag } from "effect/unstable/cli";
-import { Config, Console, Effect } from "effect";
+import { Config, Console, Effect, FileSystem, Path } from "effect";
 import { StackError } from "../errors/index.js";
-import { mkdirSync, writeFileSync } from "fs";
-import { join } from "path";
-import { homedir } from "os";
 
 const skillContent = typeof __SKILL_CONTENT__ !== "undefined" ? __SKILL_CONTENT__ : null;
 
@@ -14,28 +11,30 @@ export const init = Command.make("init", { json: jsonFlag }).pipe(
   Command.withExamples([{ command: "stacked init", description: "Install the Claude skill" }]),
   Command.withHandler(({ json }) =>
     Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
       if (skillContent === null) {
         return yield* new StackError({
           message: "Skill content not available. This command only works with the compiled binary.",
         });
       }
 
+      const home = yield* Config.string("HOME");
       const skillsDir = yield* Config.string("STACKED_SKILLS_DIR").pipe(
-        Config.withDefault(join(homedir(), ".claude", "skills")),
+        Config.withDefault(path.join(home, ".claude", "skills")),
       );
-      const targetDir = join(skillsDir, "stacked");
-      const targetPath = join(targetDir, "SKILL.md");
+      const targetDir = path.join(skillsDir, "stacked");
+      const targetPath = path.join(targetDir, "SKILL.md");
 
       if (!json) {
         yield* Console.error(`Writing skill to ${targetPath}...`);
       }
-      yield* Effect.try({
-        try: () => {
-          mkdirSync(targetDir, { recursive: true });
-          writeFileSync(targetPath, skillContent);
-        },
-        catch: (e) => new StackError({ message: `Failed to write skill: ${e}` }),
-      });
+      yield* fs.makeDirectory(targetDir, { recursive: true }).pipe(
+        Effect.andThen(fs.writeFileString(targetPath, skillContent)),
+        Effect.mapError(
+          (error) => new StackError({ message: `Failed to write skill: ${error.message}` }),
+        ),
+      );
 
       if (json) {
         // @effect-diagnostics-next-line effect/preferSchemaOverJson:off

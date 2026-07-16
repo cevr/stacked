@@ -20,7 +20,7 @@
     "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
     "no-underscore-dangle": "off",
     "no-shadow": "off",
-    "effect/noNodeBuiltinImport": "warn",
+    "effect/noNodeBuiltinImport": "error",
     "effect/noDynamicImports": "error",
     "effect/noSleepInTests": "error"
   },
@@ -30,7 +30,8 @@
       "files": ["**/tests/**", "**/*.test.ts", "**/*.test.tsx"],
       "rules": {
         "typescript/no-non-null-assertion": "off",
-        "typescript/no-explicit-any": "off"
+        "typescript/no-explicit-any": "off",
+        "effect/noNodeBuiltinImport": "off"
       }
     }
   ]
