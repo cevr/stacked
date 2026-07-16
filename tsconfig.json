@@ -17,6 +17,10 @@
         "name": "@effect/language-service",
         "diagnostics": true,
         "diagnosticsName": true,
+        "includeSuggestionsInTsc": true,
+        "ignoreEffectSuggestionsInTscExitCode": false,
+        "ignoreEffectWarningsInTscExitCode": false,
+        "ignoreEffectErrorsInTscExitCode": false,
         "diagnosticSeverity": {
           "anyUnknownInErrorContext": "error",
           "deterministicKeys": "warning",
@@ -55,6 +59,16 @@
             "target": "error",
             "pattern": "default",
             "skipLeadingPath": ["src/"]
+          }
+        ],
+        "overrides": [
+          {
+            "include": ["**/tests/**/*.ts", "**/*.test.ts"],
+            "options": {
+              "diagnosticSeverity": {
+                "strictEffectProvide": "off"
+              }
+            }
           }
         ]
       }

@@ -5,7 +5,8 @@
     "suspicious": "error",
     "perf": "error"
   },
-  "plugins": ["typescript", "import"],
+  "plugins": ["typescript", "import", "node"],
+  "jsPlugins": ["oxlint-plugin-effect/plugin"],
   "rules": {
     "typescript/no-explicit-any": "error",
     "typescript/no-non-null-assertion": "error",
@@ -16,12 +17,17 @@
       { "prefer": "type-imports", "fixStyle": "separate-type-imports" }
     ],
     "import/no-duplicates": "error",
-    "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }]
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "no-underscore-dangle": "off",
+    "no-shadow": "off",
+    "effect/noNodeBuiltinImport": "warn",
+    "effect/noDynamicImports": "error",
+    "effect/noSleepInTests": "error"
   },
   "ignorePatterns": ["**/dist/**", "**/node_modules/**", "**/*.d.ts", "**/bin/**", "**/scripts/**"],
   "overrides": [
     {
-      "files": ["**/*.test.ts"],
+      "files": ["**/tests/**", "**/*.test.ts", "**/*.test.tsx"],
       "rules": {
         "typescript/no-non-null-assertion": "off",
         "typescript/no-explicit-any": "off"
