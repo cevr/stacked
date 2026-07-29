@@ -1,5 +1,11 @@
 # @cvr/stacked
 
+## 0.10.1
+
+### Patch Changes
+
+- [`824ef46`](https://github.com/cevr/stacked/commit/824ef46d56c28269ed5555a8d9d75c136b44b0f0) - Fix `submit` failing with a GitHub GraphQL error: `gh pr edit` queries the deprecated Projects (classic) `projectCards` field, which GitHub now rejects. PR base/title/body updates now go through the REST endpoint (`gh api -X PATCH`) instead.
+
 ## 0.10.0
 
 ### Minor Changes
