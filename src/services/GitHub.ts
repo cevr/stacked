@@ -102,10 +102,23 @@ export class GitHubService extends Context.Service<
       }),
 
       updatePR: Effect.fn("GitHubService.updatePR")(function* (options) {
-        const args = ["pr", "edit", options.branch];
-        if (options.base !== undefined) args.push("--base", options.base);
-        if (options.title !== undefined) args.push("--title", options.title);
-        if (options.body !== undefined) args.push("--body", options.body);
+        if (options.base === undefined && options.title === undefined && options.body === undefined)
+          return;
+        // `gh pr edit` queries the deprecated Projects (classic) `projectCards` GraphQL
+        // field, which GitHub now rejects; patch through the REST endpoint instead.
+        const number = yield* run([
+          "pr",
+          "view",
+          options.branch,
+          "--json",
+          "number",
+          "--jq",
+          ".number",
+        ]);
+        const args = ["api", `repos/{owner}/{repo}/pulls/${number}`, "-X", "PATCH"];
+        if (options.base !== undefined) args.push("-f", `base=${options.base}`);
+        if (options.title !== undefined) args.push("-f", `title=${options.title}`);
+        if (options.body !== undefined) args.push("-f", `body=${options.body}`);
         yield* run(args);
       }),
 
